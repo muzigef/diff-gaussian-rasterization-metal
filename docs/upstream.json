@@ -1,0 +1,22 @@
+{
+  "repository": "https://github.com/graphdeco-inria/diff-gaussian-rasterization.git",
+  "commit": "59f5f77e3ddbac3ed9db93ec2cfe99ed6c5d121d",
+  "note": "Read from the local working tree; its unrelated uncommitted edits were preserved. Hashes identify the exact source files used.",
+  "files": {
+    "cuda_rasterizer/forward.cu": "83c182561b9f75e93b7b72a24aaf1fce507388a0198aa4a56137d25deabcd6c8",
+    "cuda_rasterizer/auxiliary.h": "f3a1a046df7e68076ecb15f145aa682e51c7e69b0054d6cd59c3cadc217f918a",
+    "cuda_rasterizer/rasterizer_impl.cu": "d9a02d3ea00939c574e682946b050599a75fd1e7d84d34f4749bb9e349249fe2",
+    "cuda_rasterizer/backward.cu": "f37bd8192453b05b299c54d060649ab12d114d46cef0a54d728fc130f23c99d6",
+    "learning-docs/用3DGS训练顶尖工程师思维.md": "274580a5550bc3c2ee8143c1269b7b27125768bf4212d5a5c36545f83fbda8c8",
+    "learning-docs/用3DGS训练顶尖工程师思维_副本.md": "5c000379fd0856d3512eb2c7a6ad5f18ca05a8f64fa4d994c88b8ae8db179aba",
+    "diff_gaussian_rasterization/__init__.py": "a543daef6d5ba39e6062041ebb9546c7ffaacc9d27cf27b7cef62fb909ddbe8b",
+    "rasterize_points.cu": "d00abdb19b87240911ca184488848377004fa1399195e1ea703565b9339bdc90",
+    "rasterize_points.h": "4403a136bb3ae3c68acbd0ec7f457f55273832c78bb7a36503c00ef598b5a86b",
+    "ext.cpp": "102d6ca2a07cf57717e5828c49a7100841cc0147f7373de768070f06bc4909ef",
+    "cuda_rasterizer/rasterizer_impl.h": "18f43cda125d6753d768cb64bce3e3363e0ad333a1de0a9294f534729cc8709c",
+    "cuda_rasterizer/rasterizer.h": "9fa0440e6862c4ba787411c816f214ca0ee89ae719362c03932fb6472e09f03c",
+    "cuda_rasterizer/config.h": "86d90fe26989e5a991104842961341d1bcb4374d5068dcb2a56d63a9017f8d65",
+    "LICENSE.md": "cd5c95b3cfff3acc1bd412420c770f88809331c3db6872df11a970147aa8e81f"
+  },
+  "contract": "Original 12-field settings; RGB/radii outputs; SH degrees 0-3; forward, analytic backward, markVisible. Device changes from CUDA to MPS; opaque buffer layout is backend-specific."
+}

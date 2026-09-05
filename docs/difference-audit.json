@@ -1,0 +1,1027 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-05",
+  "device": "Apple M3 Pro",
+  "upstream_commit": "59f5f77e3ddbac3ed9db93ec2cfe99ed6c5d121d",
+  "source_host_manifest": {
+    "compiler_command": [
+      "clang++",
+      "-std=c++17",
+      "-O2",
+      "-ffp-contract=off",
+      "-fno-fast-math",
+      "-shared",
+      "-fPIC",
+      "-I/Users/liqing93/code/diff-gaussian-rasterization/third_party/glm",
+      "/Users/liqing93/code/diff-gaussian-rasterization-metal/output/analysis/after_fix/oracle/upstream_host.cpp",
+      "-o",
+      "/Users/liqing93/code/diff-gaussian-rasterization-metal/output/analysis/after_fix/oracle/upstream_host.dylib"
+    ],
+    "files": {
+      "cuda_rasterizer/forward.cu": "83c182561b9f75e93b7b72a24aaf1fce507388a0198aa4a56137d25deabcd6c8",
+      "cuda_rasterizer/backward.cu": "f37bd8192453b05b299c54d060649ab12d114d46cef0a54d728fc130f23c99d6",
+      "cuda_rasterizer/auxiliary.h": "f3a1a046df7e68076ecb15f145aa682e51c7e69b0054d6cd59c3cadc217f918a",
+      "cuda_rasterizer/config.h": "86d90fe26989e5a991104842961341d1bcb4374d5068dcb2a56d63a9017f8d65"
+    },
+    "generated_sha256": "c4e791e91c1f27254fa263fba434765173c94f8abe24ed32220f000ff5cbd6b0",
+    "limitation": "Host float32 execution, serial accumulation, std::stable_sort; not CUDA device code."
+  },
+  "results": {
+    "model_gaussians": 559263,
+    "resolution": [
+      980,
+      545
+    ],
+    "camera_name": "00001",
+    "oracle": "Original CUDA mathematical bodies compiled as host float32; not NVIDIA execution",
+    "original_source_stages": {
+      "centers": {
+        "elements": 914174,
+        "max_abs": 0.00250244140625,
+        "rmse": 2.6714294628163818e-05,
+        "p99_abs": 6.103515625e-05,
+        "outside_tolerance": 1,
+        "atol": 0.0002,
+        "rtol": 0.0002
+      },
+      "depths": {
+        "elements": 457087,
+        "max_abs": 3.814697265625e-06,
+        "rmse": 1.9301315988686052e-07,
+        "p99_abs": 9.5367431640625e-07,
+        "outside_tolerance": 0,
+        "atol": 0.0002,
+        "rtol": 0.0002
+      },
+      "cov": {
+        "elements": 2742522,
+        "max_abs": 8.940696716308594e-08,
+        "rmse": 3.119753395273072e-10,
+        "p99_abs": 2.3283064365386963e-10,
+        "outside_tolerance": 0,
+        "atol": 0.0002,
+        "rtol": 0.0002
+      },
+      "rgb": {
+        "elements": 1371261,
+        "max_abs": 3.5762786865234375e-07,
+        "rmse": 1.2965612356282329e-08,
+        "p99_abs": 5.960464477539063e-08,
+        "outside_tolerance": 0,
+        "atol": 0.0002,
+        "rtol": 0.0002
+      },
+      "conic": {
+        "elements": 1828348,
+        "max_abs": 0.002576112747192383,
+        "rmse": 2.1387039640339926e-06,
+        "p99_abs": 1.0728836059570312e-06,
+        "outside_tolerance": 3,
+        "atol": 0.0002,
+        "rtol": 0.0002
+      },
+      "cov2d": {
+        "elements": 1371261,
+        "max_abs": 0.359375,
+        "rmse": 0.0005796930532253195,
+        "p99_abs": 1.9073486328125e-05,
+        "outside_tolerance": 0,
+        "atol": 0.0002,
+        "rtol": 0.0002
+      }
+    },
+    "integer_stages": {
+      "radii": {
+        "mismatched_elements": 0
+      },
+      "counts": {
+        "mismatched_elements": 0
+      },
+      "rects": {
+        "mismatched_elements": 0
+      },
+      "instances": {
+        "metal": 2949986,
+        "host": 2949986
+      },
+      "sorted_ids_original_depth": 428,
+      "sorted_ids_same_metal_depth": 0,
+      "ranges_same_metal_geometry": 0
+    },
+    "full_image_original_source": {
+      "elements": 1602300,
+      "max_abs": 0.0026134252548217773,
+      "rmse": 9.374610820051318e-06,
+      "p99_abs": 4.217028617858887e-06,
+      "outside_tolerance": 172,
+      "atol": 0.0002,
+      "rtol": 0
+    },
+    "sorting_depth_rounding_effect": {
+      "elements": 1602300,
+      "max_abs": 0.0006603896617889404,
+      "rmse": 2.1494427045015253e-06,
+      "p99_abs": 0.0,
+      "outside_tolerance": 48,
+      "atol": 0.0002,
+      "rtol": 0
+    },
+    "worst_pixel_traces": {
+      "columns": [
+        "power",
+        "alpha",
+        "previous_T",
+        "next_T",
+        "action"
+      ],
+      "actions": {
+        "0": "after_stop",
+        "1": "positive_power_skip",
+        "2": "alpha_skip",
+        "3": "transmittance_stop",
+        "4": "accepted"
+      },
+      "alpha_threshold_float32": 0.003921568859368563,
+      "pixels": [
+        {
+          "xy": [
+            491,
+            483
+          ],
+          "pixel_max_abs": 0.0026134252548217773,
+          "first_decision_differences": [
+            {
+              "gaussian_id": 422740,
+              "source": [
+                -1.786661148071289,
+                0.003921566531062126,
+                0.9956541657447815,
+                0.99174964427948,
+                2.0
+              ],
+              "metal_geometry_host_math": [
+                -1.786644458770752,
+                0.0039216321893036366,
+                0.9956541657447815,
+                0.9917495846748352,
+                4.0
+              ]
+            }
+          ]
+        },
+        {
+          "xy": [
+            560,
+            256
+          ],
+          "pixel_max_abs": 0.0022852420806884766,
+          "first_decision_differences": [
+            {
+              "gaussian_id": 350892,
+              "source": [
+                -1.0042282342910767,
+                0.003920957446098328,
+                0.7850038409233093,
+                0.7819258570671082,
+                2.0
+              ],
+              "metal_geometry_host_math": [
+                -1.0040704011917114,
+                0.00392157630994916,
+                0.7850034832954407,
+                0.7819250226020813,
+                4.0
+              ]
+            }
+          ]
+        },
+        {
+          "xy": [
+            107,
+            149
+          ],
+          "pixel_max_abs": 0.0020702481269836426,
+          "first_decision_differences": [
+            {
+              "gaussian_id": 95126,
+              "source": [
+                -3.0748116970062256,
+                0.00392157444730401,
+                0.5005919337272644,
+                0.4986288249492645,
+                4.0
+              ],
+              "metal_geometry_host_math": [
+                -3.0748183727264404,
+                0.003921547904610634,
+                0.5005918741226196,
+                0.49862876534461975,
+                2.0
+              ]
+            }
+          ]
+        },
+        {
+          "xy": [
+            675,
+            250
+          ],
+          "pixel_max_abs": 0.0020431876182556152,
+          "first_decision_differences": [
+            {
+              "gaussian_id": 317679,
+              "source": [
+                -2.2207143306732178,
+                0.00392153300344944,
+                0.8957275152206421,
+                0.8922148942947388,
+                2.0
+              ],
+              "metal_geometry_host_math": [
+                -2.2207045555114746,
+                0.003921571187674999,
+                0.8957276940345764,
+                0.8922150135040283,
+                4.0
+              ]
+            }
+          ]
+        },
+        {
+          "xy": [
+            324,
+            244
+          ],
+          "pixel_max_abs": 0.0020043253898620605,
+          "first_decision_differences": [
+            {
+              "gaussian_id": 169706,
+              "source": [
+                -4.177152633666992,
+                0.00392154511064291,
+                0.7776351571083069,
+                0.7745856046676636,
+                2.0
+              ],
+              "metal_geometry_host_math": [
+                -4.177143096923828,
+                0.003921582363545895,
+                0.7776354551315308,
+                0.7745859026908875,
+                4.0
+              ]
+            }
+          ]
+        },
+        {
+          "xy": [
+            824,
+            252
+          ],
+          "pixel_max_abs": 0.0018748044967651367,
+          "first_decision_differences": [
+            {
+              "gaussian_id": 436007,
+              "source": [
+                -2.736178398132324,
+                0.003921559080481529,
+                0.9038398265838623,
+                0.9002953767776489,
+                2.0
+              ],
+              "metal_geometry_host_math": [
+                -2.736161231994629,
+                0.003921626601368189,
+                0.9038404226303101,
+                0.9002959132194519,
+                4.0
+              ]
+            }
+          ]
+        },
+        {
+          "xy": [
+            483,
+            247
+          ],
+          "pixel_max_abs": 0.0018723607063293457,
+          "first_decision_differences": [
+            {
+              "gaussian_id": 315282,
+              "source": [
+                -2.8691763877868652,
+                0.003921586088836193,
+                0.9274104833602905,
+                0.9237735867500305,
+                4.0
+              ],
+              "metal_geometry_host_math": [
+                -2.869182586669922,
+                0.003921561874449253,
+                0.9274104237556458,
+                0.9237735271453857,
+                2.0
+              ]
+            }
+          ]
+        },
+        {
+          "xy": [
+            16,
+            287
+          ],
+          "pixel_max_abs": 0.001641295850276947,
+          "first_decision_differences": [
+            {
+              "gaussian_id": 306166,
+              "source": [
+                -2.5507097244262695,
+                0.0039215777069330215,
+                0.4255469739437103,
+                0.42387816309928894,
+                4.0
+              ],
+              "metal_geometry_host_math": [
+                -2.550713062286377,
+                0.00392156420275569,
+                0.42554670572280884,
+                0.42387789487838745,
+                2.0
+              ]
+            }
+          ]
+        },
+        {
+          "xy": [
+            900,
+            213
+          ],
+          "pixel_max_abs": 0.0016063451766967773,
+          "first_decision_differences": [
+            {
+              "gaussian_id": 470195,
+              "source": [
+                -1.9584146738052368,
+                0.00392157444730401,
+                0.6861755847930908,
+                0.683484673500061,
+                4.0
+              ],
+              "metal_geometry_host_math": [
+                -1.958423137664795,
+                0.0039215413853526115,
+                0.6861761212348938,
+                0.683485209941864,
+                2.0
+              ]
+            }
+          ]
+        },
+        {
+          "xy": [
+            214,
+            81
+          ],
+          "pixel_max_abs": 0.0015635564923286438,
+          "first_decision_differences": [
+            {
+              "gaussian_id": 185572,
+              "source": [
+                -2.6880428791046143,
+                0.003921355586498976,
+                0.5444516539573669,
+                0.5423166751861572,
+                2.0
+              ],
+              "metal_geometry_host_math": [
+                -2.6879587173461914,
+                0.003921685740351677,
+                0.5444521903991699,
+                0.5423170328140259,
+                4.0
+              ]
+            }
+          ]
+        },
+        {
+          "xy": [
+            922,
+            219
+          ],
+          "pixel_max_abs": 0.0015510916709899902,
+          "first_decision_differences": [
+            {
+              "gaussian_id": 197640,
+              "source": [
+                -5.475686073303223,
+                0.003921590745449066,
+                0.2889198958873749,
+                0.2877868711948395,
+                4.0
+              ],
+              "metal_geometry_host_math": [
+                -5.475705146789551,
+                0.00392151577398181,
+                0.28891998529434204,
+                0.28778699040412903,
+                2.0
+              ]
+            }
+          ]
+        },
+        {
+          "xy": [
+            693,
+            31
+          ],
+          "pixel_max_abs": 0.0015426278114318848,
+          "first_decision_differences": [
+            {
+              "gaussian_id": 408078,
+              "source": [
+                -3.4562623500823975,
+                0.003921649418771267,
+                0.9237338304519653,
+                0.9201112985610962,
+                4.0
+              ],
+              "metal_geometry_host_math": [
+                -3.456286668777466,
+                0.003921554423868656,
+                0.9237337112426758,
+                0.9201112389564514,
+                2.0
+              ]
+            }
+          ]
+        }
+      ],
+      "note": "Both traces use host math; only projected geometry and candidate lists differ. This isolates preprocessing sensitivity, not GPU exp rounding."
+    },
+    "compositing_only": {
+      "elements": 1602300,
+      "max_abs": 0.000991910696029663,
+      "rmse": 8.622454931561186e-07,
+      "p99_abs": 1.7881393432617188e-07,
+      "outside_tolerance": 2,
+      "atol": 0.0002,
+      "rtol": 0
+    },
+    "compositing_last_positions": 2,
+    "compositing_transmittance": {
+      "elements": 534100,
+      "max_abs": 0.00046084076166152954,
+      "rmse": 6.309561716310351e-07,
+      "p99_abs": 2.2351741790771484e-08,
+      "outside_tolerance": 1,
+      "atol": 0.0002,
+      "rtol": 0
+    },
+    "sparse_pixel_backward_original_source": {
+      "means2D": {
+        "elements": 1677789,
+        "max_abs": 2.384185791015625e-07,
+        "rmse": 4.660147800096796e-10,
+        "p99_abs": 0.0,
+        "outside_tolerance": 0,
+        "atol": 0.0005,
+        "rtol": 0.002
+      },
+      "colors_precomp": {
+        "elements": 1677789,
+        "max_abs": 5.704350769519806e-09,
+        "rmse": 1.4473087377427758e-11,
+        "p99_abs": 0.0,
+        "outside_tolerance": 0,
+        "atol": 0.0005,
+        "rtol": 0.002
+      },
+      "opacities": {
+        "elements": 559263,
+        "max_abs": 8.381903171539307e-09,
+        "rmse": 3.447911823608955e-11,
+        "p99_abs": 0.0,
+        "outside_tolerance": 0,
+        "atol": 0.0005,
+        "rtol": 0.002
+      },
+      "means3D": {
+        "elements": 1677789,
+        "max_abs": 2.3245811462402344e-06,
+        "rmse": 2.3809409395996296e-09,
+        "p99_abs": 0.0,
+        "outside_tolerance": 0,
+        "atol": 0.0005,
+        "rtol": 0.002
+      },
+      "cov3D_precomp": {
+        "elements": 3355578,
+        "max_abs": 0.00010609626770019531,
+        "rmse": 1.5604883862065962e-07,
+        "p99_abs": 0.0,
+        "outside_tolerance": 0,
+        "atol": 0.0005,
+        "rtol": 0.002
+      },
+      "shs": {
+        "elements": 26844624,
+        "max_abs": 2.7939677238464355e-09,
+        "rmse": 3.666517310617889e-12,
+        "p99_abs": 0.0,
+        "outside_tolerance": 0,
+        "atol": 0.0005,
+        "rtol": 0.002
+      },
+      "scales": {
+        "elements": 1677789,
+        "max_abs": 4.284083843231201e-06,
+        "rmse": 3.7907160711580305e-09,
+        "p99_abs": 0.0,
+        "outside_tolerance": 0,
+        "atol": 0.0005,
+        "rtol": 0.002
+      },
+      "rotations": {
+        "elements": 2237052,
+        "max_abs": 6.882473826408386e-07,
+        "rmse": 6.210731588733028e-10,
+        "p99_abs": 0.0,
+        "outside_tolerance": 0,
+        "atol": 0.0005,
+        "rtol": 0.002
+      }
+    },
+    "published": {
+      "metal_to_render": {
+        "elements": 1602300,
+        "max_abs": 0.7590125203132629,
+        "rmse": 0.06355185989414414,
+        "p99_abs": 0.21194207690656186,
+        "outside_tolerance": 1594242,
+        "atol": 0.0002,
+        "rtol": 0
+      },
+      "metal_to_gt": {
+        "elements": 1602300,
+        "max_abs": 0.8818818274885416,
+        "rmse": 0.08829260803358349,
+        "p99_abs": 0.31985825717449196,
+        "outside_tolerance": 1595175,
+        "atol": 0.0002,
+        "rtol": 0
+      },
+      "public_render_to_gt": {
+        "elements": 1602300,
+        "max_abs": 0.8862745156511664,
+        "rmse": 0.08961516037833629,
+        "p99_abs": 0.3176470548659563,
+        "outside_tolerance": 1534092,
+        "atol": 0.0002,
+        "rtol": 0
+      },
+      "host_to_render": {
+        "elements": 1602300,
+        "max_abs": 0.7590104788541794,
+        "rmse": 0.06355184170693537,
+        "p99_abs": 0.21194171376526355,
+        "outside_tolerance": 1594245,
+        "atol": 0.0002,
+        "rtol": 0
+      }
+    },
+    "photometric": {
+      "affine_coefficients_rgb": [
+        [
+          0.9314375987867364,
+          0.02147673629051595
+        ],
+        [
+          0.9466025862053848,
+          0.015307156143577147
+        ],
+        [
+          0.9497488989495898,
+          0.014223096784584804
+        ]
+      ],
+      "affine_fit": {
+        "elements": 1602300,
+        "max_abs": 0.7565051834630434,
+        "rmse": 0.061601404018583356,
+        "p99_abs": 0.20890589511955182,
+        "outside_tolerance": 1597256,
+        "atol": 0.0002,
+        "rtol": 0
+      },
+      "best_gamma": [
+        1.025,
+        0.06347658171112101
+      ],
+      "gamma_2_2": {
+        "elements": 1602300,
+        "max_abs": 0.9515336081385612,
+        "rmse": 0.2107912117980345,
+        "p99_abs": 0.42243366137146954,
+        "outside_tolerance": 1601631,
+        "atol": 0.0002,
+        "rtol": 0
+      },
+      "gamma_inverse_2_2": {
+        "elements": 1602300,
+        "max_abs": 0.7241399735212326,
+        "rmse": 0.22843778281585034,
+        "p99_abs": 0.4029489873349667,
+        "outside_tolerance": 1602109,
+        "atol": 0.0002,
+        "rtol": 0
+      },
+      "png_quantization": {
+        "elements": 1602300,
+        "max_abs": 0.0019608139991760254,
+        "rmse": 0.0011321077920048105,
+        "p99_abs": 0.0019412636756896973,
+        "outside_tolerance": 1438886,
+        "atol": 0.0002,
+        "rtol": 0
+      }
+    },
+    "regions": {
+      "top_band": {
+        "elements": 288120,
+        "max_abs": 0.2942360043525696,
+        "rmse": 0.061765435805469206,
+        "p99_abs": 0.17707315802574158,
+        "outside_tolerance": 287414,
+        "atol": 0.0002,
+        "rtol": 0
+      },
+      "train_center": {
+        "elements": 449820,
+        "max_abs": 0.44657388515770435,
+        "rmse": 0.05233512282989198,
+        "p99_abs": 0.18135577812790865,
+        "outside_tolerance": 446789,
+        "atol": 0.0002,
+        "rtol": 0
+      },
+      "right_background": {
+        "elements": 262668,
+        "max_abs": 0.7590125203132629,
+        "rmse": 0.0795908386034353,
+        "p99_abs": 0.2712495261430739,
+        "outside_tolerance": 261990,
+        "atol": 0.0002,
+        "rtol": 0
+      },
+      "bottom_band": {
+        "elements": 291060,
+        "max_abs": 0.4486156553030014,
+        "rmse": 0.05194186908347517,
+        "p99_abs": 0.17486627161502832,
+        "outside_tolerance": 288680,
+        "atol": 0.0002,
+        "rtol": 0
+      }
+    },
+    "ablations": {
+      "sh_degree_0": {
+        "elements": 1602300,
+        "max_abs": 0.7973468899726868,
+        "rmse": 0.07073644976339309,
+        "p99_abs": 0.21736422419548035,
+        "outside_tolerance": 1595691,
+        "atol": 0.0002,
+        "rtol": 0
+      },
+      "sh_degree_1": {
+        "elements": 1602300,
+        "max_abs": 0.7805865854024887,
+        "rmse": 0.06878855966694457,
+        "p99_abs": 0.21422676086425782,
+        "outside_tolerance": 1595109,
+        "atol": 0.0002,
+        "rtol": 0
+      },
+      "sh_degree_2": {
+        "elements": 1602300,
+        "max_abs": 0.7721470147371292,
+        "rmse": 0.06457125172387834,
+        "p99_abs": 0.20936631575226788,
+        "outside_tolerance": 1594470,
+        "atol": 0.0002,
+        "rtol": 0
+      },
+      "sh_degree_3": {
+        "elements": 1602300,
+        "max_abs": 0.7590125203132629,
+        "rmse": 0.06355185989414414,
+        "p99_abs": 0.21194207690656186,
+        "outside_tolerance": 1594242,
+        "atol": 0.0002,
+        "rtol": 0
+      },
+      "original_source_precomputed_vs_metal": {
+        "elements": 1602300,
+        "max_abs": 0.0011876821517944336,
+        "rmse": 1.4519890812639413e-06,
+        "p99_abs": 2.384185791015625e-07,
+        "outside_tolerance": 5,
+        "atol": 0.0002,
+        "rtol": 0
+      },
+      "full_resolution_then_area": {
+        "elements": 1602300,
+        "max_abs": 0.7944387793540955,
+        "rmse": 0.06462086973990011,
+        "p99_abs": 0.2167038658261299,
+        "outside_tolerance": 1594361,
+        "atol": 0.0002,
+        "rtol": 0
+      },
+      "full_resolution_then_bilinear": {
+        "elements": 1602300,
+        "max_abs": 0.7828983962535858,
+        "rmse": 0.06401831355988338,
+        "p99_abs": 0.21447840794920922,
+        "outside_tolerance": 1594204,
+        "atol": 0.0002,
+        "rtol": 0
+      },
+      "full_resolution_then_bicubic": {
+        "elements": 1602300,
+        "max_abs": 0.799815908074379,
+        "rmse": 0.06480782385558866,
+        "p99_abs": 0.2171780470013619,
+        "outside_tolerance": 1594387,
+        "atol": 0.0002,
+        "rtol": 0
+      },
+      "best_principal_point_shift": {
+        "dx": 0,
+        "dy": 0,
+        "rmse": 0.06355185989414414
+      },
+      "principal_point_sweep": [
+        {
+          "dx": -1,
+          "dy": -1,
+          "rmse": 0.07680923111347032
+        },
+        {
+          "dx": -0.5,
+          "dy": -1,
+          "rmse": 0.07374496355571818
+        },
+        {
+          "dx": 0,
+          "dy": -1,
+          "rmse": 0.0734444516062344
+        },
+        {
+          "dx": 0.5,
+          "dy": -1,
+          "rmse": 0.07623919426806833
+        },
+        {
+          "dx": 1,
+          "dy": -1,
+          "rmse": 0.08093296799494946
+        },
+        {
+          "dx": -1,
+          "dy": -0.5,
+          "rmse": 0.07102315749736698
+        },
+        {
+          "dx": -0.5,
+          "dy": -0.5,
+          "rmse": 0.06700194090679205
+        },
+        {
+          "dx": 0,
+          "dy": -0.5,
+          "rmse": 0.06619992353237085
+        },
+        {
+          "dx": 0.5,
+          "dy": -0.5,
+          "rmse": 0.06922784950006775
+        },
+        {
+          "dx": 1,
+          "dy": -0.5,
+          "rmse": 0.07463834884729455
+        },
+        {
+          "dx": -1,
+          "dy": 0,
+          "rmse": 0.0697092621618645
+        },
+        {
+          "dx": -0.5,
+          "dy": 0,
+          "rmse": 0.0650045277205257
+        },
+        {
+          "dx": 0,
+          "dy": 0,
+          "rmse": 0.06355185989414414
+        },
+        {
+          "dx": 0.5,
+          "dy": 0,
+          "rmse": 0.06626256293713785
+        },
+        {
+          "dx": 1,
+          "dy": 0,
+          "rmse": 0.07172158194900027
+        },
+        {
+          "dx": -1,
+          "dy": 0.5,
+          "rmse": 0.0737064693846676
+        },
+        {
+          "dx": -0.5,
+          "dy": 0.5,
+          "rmse": 0.06911878616296108
+        },
+        {
+          "dx": 0,
+          "dy": 0.5,
+          "rmse": 0.06731179394415775
+        },
+        {
+          "dx": 0.5,
+          "dy": 0.5,
+          "rmse": 0.06926882754236584
+        },
+        {
+          "dx": 1,
+          "dy": 0.5,
+          "rmse": 0.07393304970846905
+        },
+        {
+          "dx": -1,
+          "dy": 1,
+          "rmse": 0.08061866282943567
+        },
+        {
+          "dx": -0.5,
+          "dy": 1,
+          "rmse": 0.07668138348747423
+        },
+        {
+          "dx": 0,
+          "dy": 1,
+          "rmse": 0.0749392250093116
+        },
+        {
+          "dx": 0.5,
+          "dy": 1,
+          "rmse": 0.07623860438122929
+        },
+        {
+          "dx": 1,
+          "dy": 1,
+          "rmse": 0.07988741857096145
+        }
+      ]
+    }
+  },
+  "asset_inputs": {
+    "sh_layout": {
+      "elements": 26844624,
+      "max_abs": 0.0,
+      "rmse": 0.0,
+      "p99_abs": 0.0,
+      "outside_tolerance": 0,
+      "atol": 0,
+      "rtol": 0
+    },
+    "activation_differences": {
+      "scales": {
+        "elements": 1677789,
+        "max_abs": 1.1920928955078125e-07,
+        "rmse": 2.384667948669399e-09,
+        "p99_abs": 7.450580596923828e-09,
+        "outside_tolerance": 0,
+        "atol": 2e-07,
+        "rtol": 2e-06
+      },
+      "opacities": {
+        "elements": 559263,
+        "max_abs": 1.1920928955078125e-07,
+        "rmse": 1.15761469309203e-08,
+        "p99_abs": 5.960464477539063e-08,
+        "outside_tolerance": 0,
+        "atol": 2e-07,
+        "rtol": 2e-06
+      },
+      "rotations": {
+        "elements": 2237052,
+        "max_abs": 1.1920928955078125e-07,
+        "rmse": 1.601172065572949e-08,
+        "p99_abs": 1.1920928955078125e-07,
+        "outside_tolerance": 0,
+        "atol": 2e-07,
+        "rtol": 2e-06
+      }
+    },
+    "minimum_raw_quaternion_norm": 0.3977951407432556,
+    "activation_image_difference": {
+      "elements": 1602300,
+      "max_abs": 0.0007254183292388916,
+      "rmse": 9.962432349850563e-07,
+      "p99_abs": 2.384185791015625e-07,
+      "outside_tolerance": 6,
+      "atol": 0.0002,
+      "rtol": 0
+    },
+    "camera_matrices": {
+      "combined_projection": {
+        "elements": 16,
+        "max_abs": 1.1920928955078125e-07,
+        "rmse": 3.9435765444748345e-08,
+        "p99_abs": 1.1026859283447264e-07,
+        "outside_tolerance": 0,
+        "atol": 0.0002,
+        "rtol": 0
+      },
+      "camera_position": {
+        "elements": 3,
+        "max_abs": 4.76837158203125e-07,
+        "rmse": 3.0926641196783273e-07,
+        "p99_abs": 4.7206878662109375e-07,
+        "outside_tolerance": 0,
+        "atol": 0.0002,
+        "rtol": 0
+      },
+      "render": {
+        "elements": 1602300,
+        "max_abs": 0.002614617347717285,
+        "rmse": 1.090795353965223e-05,
+        "p99_abs": 7.838010787963867e-06,
+        "outside_tolerance": 167,
+        "atol": 0.0002,
+        "rtol": 0
+      }
+    },
+    "fov_sweep": [
+      {
+        "tan_fov_scale": 0.999,
+        "rmse": 0.06409315657394211
+      },
+      {
+        "tan_fov_scale": 0.9995,
+        "rmse": 0.06371455146306998
+      },
+      {
+        "tan_fov_scale": 1,
+        "rmse": 0.06355185989414414
+      },
+      {
+        "tan_fov_scale": 1.0005,
+        "rmse": 0.06360319477511153
+      },
+      {
+        "tan_fov_scale": 1.001,
+        "rmse": 0.06386357144084676
+      }
+    ]
+  },
+  "fixes": {
+    "singular_projection": {
+      "before_gpu_probe": {
+        "error": 1,
+        "radius": 0,
+        "tile_count": 0
+      },
+      "after_gpu_probe": {
+        "error": 0,
+        "radius": 0,
+        "tile_count": 0
+      },
+      "train_image_bitwise_unchanged": true
+    },
+    "ply_quaternion_epsilon": {
+      "before_regression": "failed: NaN and mismatched tiny quaternion",
+      "after_regression": "passed",
+      "official_model_minimum_raw_norm": 0.3977951407432556
+    }
+  },
+  "compile_options_probe": {
+    "fastMathEnabled_NO": {
+      "mathMode": 0,
+      "mathFloatingPointFunctions": 1
+    },
+    "explicit_safe_precise_changed_image_elements": 0
+  },
+  "tests": {
+    "ctest_passed": 17,
+    "pytest_passed": 40,
+    "gpu_skipped": 0
+  },
+  "assessment": "Two boundary logic defects fixed. Published-image discrepancy is dominated by an unmatched model/evaluation reference, supported by official version notes and host-source controls. Full-image 2e-4 absolute parity still has 172 channel outliers; NVIDIA device golden remains unavailable."
+}

@@ -1,0 +1,115 @@
+{
+  "date": "2026-09-05",
+  "device": "Apple M3 Pro",
+  "torch": "2.14.0",
+  "upstream_commit": "59f5f77e3ddbac3ed9db93ec2cfe99ed6c5d121d",
+  "model_provenance": [
+    {
+      "url": "https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/datasets/pretrained/models.zip",
+      "member": "train/cameras.json",
+      "bytes": 120800,
+      "sha256": "f54e605c11aa577e3cd83702ce69385577da07eb9ae150f0f195116018506563"
+    },
+    {
+      "url": "https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/datasets/pretrained/models.zip",
+      "member": "train/cfg_args",
+      "bytes": 162,
+      "sha256": "de85dea658139c0e2a887504292baa9426ad9c5834bbba530dfa2e41d5496d7f"
+    },
+    {
+      "url": "https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/datasets/pretrained/models.zip",
+      "member": "train/point_cloud/iteration_7000/point_cloud.ply",
+      "bytes": 138698755,
+      "sha256": "8212d03d01edc66423fdd8a6e9884f5f73838cccdda1c82dbf2aea514eb0dce7"
+    }
+  ],
+  "image_provenance": [
+    {
+      "url": "https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/evaluation/images.zip",
+      "member": "train/test/ours_7000/renders/00001.png",
+      "bytes": 536958,
+      "sha256": "151a9e03bb8c95175db1598c5c0c899ca72355f32c2097cea425b29d202f60a7",
+      "camera_name": "00001"
+    },
+    {
+      "url": "https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/evaluation/images.zip",
+      "member": "train/test/ours_7000/gt/00001.png",
+      "bytes": 759111,
+      "sha256": "fa3807e300b55ff7985c11c57a04efe1ac0c232ebc7c0f2773e725f4833b0c51",
+      "camera_name": "00001"
+    }
+  ],
+  "metal_render": {
+    "model_gaussians": 559263,
+    "visible_gaussians": 457087,
+    "camera_index": 0,
+    "camera_name": "00001",
+    "width": 980,
+    "height": 545,
+    "cold_render_seconds": 0.29471000004559755,
+    "output": "output/public/train/metal_00001_980.png",
+    "public_image_comparisons": {
+      "renders": {
+        "source_size": [
+          980,
+          545
+        ],
+        "rmse": 0.06355185806751251,
+        "source_member": "train/test/ours_7000/renders/00001.png",
+        "psnr_db": 23.93743494888044,
+        "note": "Published checkpoint/version may differ; resizing also changes filtering."
+      },
+      "gt": {
+        "source_size": [
+          980,
+          545
+        ],
+        "rmse": 0.08829260617494583,
+        "source_member": "train/test/ours_7000/gt/00001.png",
+        "psnr_db": 21.081513274285495,
+        "note": "Published checkpoint/version may differ; resizing also changes filtering."
+      }
+    },
+    "backward_seconds": 0.2675866670906544,
+    "gradient_smoke_test": {
+      "means3D": {
+        "max_abs": 0.05676238611340523,
+        "nonzero_elements": 823032
+      },
+      "means2D": {
+        "max_abs": 0.014897054061293602,
+        "nonzero_elements": 548688
+      },
+      "shs": {
+        "max_abs": 0.005968502722680569,
+        "nonzero_elements": 11099200
+      },
+      "opacities": {
+        "max_abs": 0.024591723456978798,
+        "nonzero_elements": 274344
+      },
+      "scales": {
+        "max_abs": 0.2561480402946472,
+        "nonzero_elements": 823032
+      },
+      "rotations": {
+        "max_abs": 0.009666423313319683,
+        "nonzero_elements": 1097376
+      }
+    }
+  },
+  "independent_cpu_check": {
+    "model_gaussians": 559263,
+    "camera_name": "00001",
+    "resolution": [
+      980,
+      545
+    ],
+    "sampled_pixels": 64,
+    "max_abs": 2.94921201127174e-06,
+    "rmse": 4.981213963330735e-07,
+    "max_abs_tolerance": 0.0002,
+    "passed": true
+  },
+  "assessment": "Same-input CPU sampled pixels pass. Published render comparison is not an equivalence pass; exact checkpoint/version parity and CUDA gradient golden remain unverified."
+}

@@ -1,0 +1,4 @@
+#pragma once
+namespace dgr::detail {
+inline constexpr const char shader_source[] = R"DGR_SHADER(@DGR_METAL_SOURCE@)DGR_SHADER";
+}
