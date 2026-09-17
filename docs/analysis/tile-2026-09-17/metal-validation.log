@@ -1,0 +1,45 @@
+Test project /Users/liqing93/code/diff-gaussian-rasterization-metal/build
+      Start  1: core.single
+ 1/19 Test  #1: core.single ......................   Passed    0.00 sec
+      Start  2: core.depth_order
+ 2/19 Test  #2: core.depth_order .................   Passed    0.00 sec
+      Start  3: core.empty
+ 3/19 Test  #3: core.empty .......................   Passed    0.01 sec
+      Start  4: core.validation
+ 4/19 Test  #4: core.validation ..................   Passed    0.00 sec
+      Start  5: core.reference_limits
+ 5/19 Test  #5: core.reference_limits ............   Passed    0.00 sec
+      Start  6: metal.single_overlap
+ 6/19 Test  #6: metal.single_overlap .............   Passed    1.19 sec
+      Start  7: metal.empty_culled
+ 7/19 Test  #7: metal.empty_culled ...............   Passed    0.04 sec
+      Start  8: metal.alpha
+ 8/19 Test  #8: metal.alpha ......................   Passed    0.04 sec
+      Start  9: metal.tile_boundaries
+ 9/19 Test  #9: metal.tile_boundaries ............   Passed    0.04 sec
+      Start 10: metal.equal_depth
+10/19 Test #10: metal.equal_depth ................   Passed    0.04 sec
+      Start 11: metal.scan_sizes
+11/19 Test #11: metal.scan_sizes .................   Passed    0.05 sec
+      Start 12: metal.camera
+12/19 Test #12: metal.camera .....................   Passed    0.04 sec
+      Start 13: metal.seeded
+13/19 Test #13: metal.seeded .....................   Passed    0.04 sec
+      Start 14: metal.limits
+14/19 Test #14: metal.limits .....................   Passed    0.04 sec
+      Start 15: metal.lifetime
+15/19 Test #15: metal.lifetime ...................   Passed    0.04 sec
+      Start 16: metal.moves
+16/19 Test #16: metal.moves ......................   Passed    0.04 sec
+      Start 17: metal.hierarchical_sort
+17/19 Test #17: metal.hierarchical_sort ..........   Passed    0.08 sec
+      Start 18: metal.tile_batches
+18/19 Test #18: metal.tile_batches ...............   Passed    0.05 sec
+      Start 19: io.schema
+19/19 Test #19: io.schema ........................   Passed    0.01 sec
+
+100% tests passed, 0 tests failed out of 19
+
+Total Test time (real) =   1.75 sec
+.............................................                            [100%]
+45 passed in 8.41s

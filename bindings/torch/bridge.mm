@@ -1,3 +1,4 @@
+#include "../../src/metal/primitives.h"
 #include "api.h"
 #include "shader_source.h"
 #include <ATen/mps/MPSStream.h>
@@ -7,15 +8,15 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <memory>
 #include <mutex>
+#include <unordered_map>
 #include <vector>
 
 namespace dgr::torch_binding {
 namespace {
-struct View {
-    id<MTLBuffer> buffer;
-    NSUInteger offset = 0;
-};
+using View = metal_detail::BufferView;
+using metal_detail::sub;
 struct alignas(16) Params {
     std::array<uint32_t, 4> dimensions;
     std::array<uint32_t, 4> modes;
@@ -39,31 +40,35 @@ struct Image {
 };
 struct Context {
     id<MTLDevice> device;
-    id<MTLCommandQueue> queue;
     id<MTLBuffer> dummy;
     NSMutableDictionary<NSString *, id<MTLComputePipelineState>> *pipelines;
     id<MTLLibrary> library;
     std::mutex mutex;
+    std::unordered_map<at::mps::MPSStream *, metal_detail::Scratch> scratch;
+    struct AsyncErrors {
+        std::mutex mutex;
+        std::string message;
+    };
+    std::shared_ptr<AsyncErrors> errors = std::make_shared<AsyncErrors>();
+    void check_errors() {
+        std::lock_guard<std::mutex> lock(errors->mutex);
+        TORCH_CHECK(errors->message.empty(), "Metal asynchronous execution: ", errors->message);
+    }
     Context() {
         device = MTLCreateSystemDefaultDevice();
         TORCH_CHECK(device && device.hasUnifiedMemory, "Apple Silicon Metal device required");
-        queue = [device newCommandQueue];
         dummy = [device newBufferWithLength:16 options:MTLResourceStorageModeShared];
-        TORCH_CHECK(queue && dummy, "Metal allocation failed");
+        TORCH_CHECK(dummy, "Metal allocation failed");
         std::memset(dummy.contents, 0, 16);
         MTLCompileOptions *options = [MTLCompileOptions new];
         options.fastMathEnabled = NO;
+        options.languageVersion = MTLLanguageVersion3_1;
         NSError *error = nil;
         library = [device newLibraryWithSource:[NSString stringWithUTF8String:detail::shader_source]
                                        options:options
                                          error:&error];
         TORCH_CHECK(library, "Metal shader compilation failed: ", error.localizedDescription.UTF8String);
         pipelines = [NSMutableDictionary new];
-    }
-    id<MTLCommandBuffer> command() {
-        id<MTLCommandBuffer> c = [queue commandBuffer];
-        TORCH_CHECK(c, "Metal command allocation failed");
-        return c;
     }
     template <class A>
     void encode(NSString *name, id<MTLCommandBuffer> command, std::initializer_list<View> buffers,
@@ -77,6 +82,9 @@ struct Context {
             TORCH_CHECK(f, "Missing Metal kernel");
             pipeline = [device newComputePipelineStateWithFunction:f error:&error];
             TORCH_CHECK(pipeline, "Metal pipeline: ", error.localizedDescription.UTF8String);
+            TORCH_CHECK(pipeline.maxTotalThreadsPerThreadgroup >= 256 && pipeline.threadExecutionWidth >= 8 &&
+                            256 % pipeline.threadExecutionWidth == 0,
+                        "Metal kernel requires a 256-thread group");
             pipelines[name] = pipeline;
         }
         id<MTLComputeCommandEncoder> e = [command computeCommandEncoder];
@@ -87,28 +95,38 @@ struct Context {
         for (auto v : buffers)
             [e setBuffer:v.buffer offset:v.offset atIndex:i++];
         [e setBytes:&args length:sizeof(args) atIndex:i];
-        [e dispatchThreads:MTLSizeMake(threads, 1, 1)
-            threadsPerThreadgroup:MTLSizeMake(
-                                      std::min<NSUInteger>(256, pipeline.maxTotalThreadsPerThreadgroup), 1,
-                                      1)];
+        metal_detail::dispatch(e, pipeline, name, &args, threads);
         [e endEncoding];
     }
-    void complete(id<MTLCommandBuffer> c) {
-        [c commit];
-        [c waitUntilCompleted];
-        TORCH_CHECK(c.status == MTLCommandBufferStatusCompleted,
-                    "Metal execution: ", c.error.localizedDescription.UTF8String);
+    template <class Encode> void execute(bool wait, Encode &&encode) {
+        check_errors();
+        auto *stream = at::mps::getCurrentMPSStream();
+        // Use PyTorch's own stream: its allocator permits in-flight storage reuse
+        // only in that stream's order. The command buffer retains Metal resources.
+        // Do not destroy Python-owned Tensor objects in a Metal completion handler:
+        // their final decref can need the GIL while a Python caller waits for the GPU.
+        auto status = errors;
+        at::mps::dispatch_sync_with_rethrow(stream->queue(), ^{
+          stream->endKernelCoalescing();
+          id<MTLCommandBuffer> command = stream->commandBuffer();
+          encode(command);
+          [command addCompletedHandler:^(id<MTLCommandBuffer> completed) {
+            if (completed.status == MTLCommandBufferStatusError) {
+                std::lock_guard<std::mutex> lock(status->mutex);
+                status->message = completed.error.localizedDescription.UTF8String ?: "unknown GPU error";
+            }
+          }];
+          stream->synchronize(wait ? at::mps::SyncType::COMMIT_AND_WAIT : at::mps::SyncType::COMMIT);
+          if (wait)
+              TORCH_CHECK(command.status == MTLCommandBufferStatusCompleted,
+                          "Metal execution: ", command.error.localizedDescription.UTF8String);
+        });
+        check_errors();
     }
 };
 Context &context() {
     static Context value;
     return value;
-}
-void synchronize_torch() {
-    auto *s = at::mps::getCurrentMPSStream();
-    at::mps::dispatch_sync_with_rethrow(s->queue(), ^{
-      s->synchronize(at::mps::SyncType::COMMIT_AND_WAIT);
-    });
 }
 void check_float(const Tensor &t, const char *name) {
     TORCH_CHECK(t.device().is_mps() && t.scalar_type() == at::kFloat, name, " must be an MPS float32 tensor");
@@ -130,10 +148,6 @@ struct Inputs {
                 static_cast<NSUInteger>(c.storage_offset() * c.element_size())};
     }
 };
-View sub(View v, size_t offset) {
-    v.offset += offset;
-    return v;
-}
 Tensor bytes(size_t count, const Tensor &like) {
     return at::zeros({static_cast<int64_t>(count)}, like.options().dtype(at::kByte));
 }
@@ -191,7 +205,6 @@ ForwardResult forward(const Tensor &bg, const Tensor &means, const Tensor &color
                       const Tensor &view, const Tensor &proj, double tanx, double tany, int height, int width,
                       const Tensor &sh, int degree, const Tensor &campos, bool prefiltered, bool debug) {
     @autoreleasepool {
-        (void)debug;
         auto p = params(means, width, height, sh, degree, colors, scales, tanx, tany, modifier, prefiltered);
         const uint32_t count = p.dimensions[0];
         auto output = at::zeros({3, height, width}, means.options());
@@ -213,7 +226,21 @@ ForwardResult forward(const Tensor &bg, const Tensor &means, const Tensor &color
         Image il(width, height);
         auto geometry = bytes(gl.size, means), image = bytes(il.size, means);
         auto offsets = at::zeros({count}, means.options().dtype(at::kInt));
-        auto scratch = at::zeros_like(offsets);
+        auto &scratch = ctx.scratch[at::mps::getCurrentMPSStream()];
+        scratch.reset();
+        struct Trim {
+            metal_detail::Scratch &s;
+            ~Trim() {
+                s.trim();
+            }
+        } trim{scratch};
+        auto temporary = [&](size_t bytes) -> View {
+            TORCH_CHECK(bytes <= ctx.device.maxBufferLength, "scratch buffer exceeds device limit");
+            auto b = scratch.get(ctx.device, bytes);
+            TORCH_CHECK(b, "Metal scratch allocation failed");
+            return b;
+        };
+        auto scan_work = temporary(metal_detail::scan_bytes(count));
         auto error = at::zeros({1}, means.options().dtype(at::kInt));
         Inputs input;
         auto vm = input.get(means), vc = input.get(colors, true), vo = input.get(opacity),
@@ -221,28 +248,28 @@ ForwardResult forward(const Tensor &bg, const Tensor &means, const Tensor &color
              vsh = input.get(sh, true);
         auto vview = input.get(view), vproj = input.get(proj), vbg = input.get(bg), vpos = input.get(campos);
         auto geo = input.get(geometry), img = input.get(image), off = input.get(offsets),
-             tmp = input.get(scratch), err = input.get(error), rad = input.get(radii),
-             out = input.get(output);
-        synchronize_torch();
-        auto first = ctx.command();
-        ctx.encode(@"training_camera", first, {vview, vproj, vbg, vpos, sub(geo, gl.camera)}, p, 1);
-        ctx.encode(@"training_prepare", first,
-                   {vm, vc, vo, vs, vr, vv, vsh, sub(geo, gl.camera), geo, sub(geo, gl.clamped),
-                    sub(geo, gl.cov), err},
-                   p, count);
+             err = input.get(error), rad = input.get(radii), out = input.get(output);
         constexpr uint32_t max_instances = 0x3fffffff;
-        ctx.encode(@"preprocess", first, {geo, sub(geo, gl.camera), sub(geo, gl.projected), off, err},
-                   std::array<uint32_t, 4>{count, uint32_t(width), uint32_t(height), max_instances}, count);
-        ctx.encode(@"training_radii", first, {sub(geo, gl.projected), rad},
-                   std::array<uint32_t, 4>{count, 0, 0, 0}, count);
-        for (uint32_t stride = 1; stride < count; stride *= 2) {
-            ctx.encode(@"scan_step", first, {off, tmp},
-                       std::array<uint32_t, 4>{count, stride, max_instances, 0}, count);
-            std::swap(off, tmp);
-        }
-        ctx.complete(first);
+        ctx.execute(true, [&](id<MTLCommandBuffer> first) {
+            ctx.encode(@"training_camera", first, {vview, vproj, vbg, vpos, sub(geo, gl.camera)}, p, 1);
+            ctx.encode(@"training_prepare", first,
+                       {vm, vc, vo, vs, vr, vv, vsh, sub(geo, gl.camera), geo, sub(geo, gl.clamped),
+                        sub(geo, gl.cov), err},
+                       p, count);
+            ctx.encode(@"preprocess", first, {geo, sub(geo, gl.camera), sub(geo, gl.projected), off, err},
+                       std::array<uint32_t, 4>{count, uint32_t(width), uint32_t(height), max_instances},
+                       count);
+            ctx.encode(@"training_radii", first, {sub(geo, gl.projected), rad},
+                       std::array<uint32_t, 4>{count, 0, 0, 0}, count);
+            auto encode_first = [&](NSString *name, std::initializer_list<View> buffers,
+                                    std::array<uint32_t, 4> args,
+                                    size_t threads) { ctx.encode(name, first, buffers, args, threads); };
+            metal_detail::scan(off, scan_work, count, max_instances + 1, encode_first);
+        });
         // Only scalars cross to the CPU; Gaussian inputs and image/gradient tensors stay in MPS buffers.
-        const int err_code = error.item<int>();
+        int err_code = 0;
+        TORCH_CHECK(err.buffer.contents, "MPS error buffer is not CPU accessible");
+        std::memcpy(&err_code, static_cast<const char *>(err.buffer.contents) + err.offset, 4);
         TORCH_CHECK(err_code == 0, err_code == 2 ? "Point filtered although prefiltered is set"
                                                  : "invalid projected covariance/coordinates");
         uint32_t instances = 0;
@@ -250,31 +277,34 @@ ForwardResult forward(const Tensor &bg, const Tensor &means, const Tensor &color
         TORCH_CHECK(off_data, "MPS count buffer is not CPU accessible");
         std::memcpy(&instances, off_data + (count - 1) * 4, 4);
         TORCH_CHECK(instances <= max_instances, "tile instance count exceeds supported range");
-        uint32_t padded = 1;
-        while (padded < instances)
-            padded *= 2;
-        auto binning = bytes(size_t(padded) * 16, means);
+        auto binning = bytes(std::max<size_t>(1, instances) * 16, means);
         auto records = input.get(binning);
-        synchronize_torch();
-        auto second = ctx.command();
-        ctx.encode(@"initialize_records", second, {records}, std::array<uint32_t, 4>{padded, 0, 0, 0},
-                   padded);
-        if (instances) {
-            ctx.encode(@"duplicate", second, {sub(geo, gl.projected), off, records},
-                       std::array<uint32_t, 4>{count, uint32_t((width + 15) / 16), 0, 0}, count);
-            for (uint32_t k = 2; k <= padded; k *= 2)
-                for (uint32_t j = k / 2; j; j /= 2)
-                    ctx.encode(@"bitonic_step", second, {records}, std::array<uint32_t, 4>{padded, j, k, 0},
-                               padded);
-            ctx.encode(@"identify_ranges", second, {records, img},
-                       std::array<uint32_t, 4>{instances, 0, 0, 0}, instances);
-        }
-        ctx.encode(@"training_render", second,
-                   {geo, sub(geo, gl.projected), records, img, sub(img, il.transmittance),
-                    sub(img, il.contributors), sub(geo, gl.camera), out},
-                   std::array<uint32_t, 4>{uint32_t(width), uint32_t(height), uint32_t((width + 15) / 16), 0},
-                   size_t(width) * height);
-        ctx.complete(second);
+        ctx.execute(debug, [&](id<MTLCommandBuffer> second) {
+            if (instances) {
+                auto other = temporary(size_t(instances) * 16);
+                auto groups = metal_detail::blocks(instances);
+                auto histogram = temporary(size_t(groups) * 16 * 4);
+                auto radix_work = temporary(metal_detail::scan_bytes(groups * 16));
+                auto passes = metal_detail::radix_passes(((width + 15) / 16) * ((height + 15) / 16));
+                auto initial = (passes & 1) ? other : records, next = (passes & 1) ? records : other;
+                ctx.encode(@"duplicate", second, {sub(geo, gl.projected), off, initial},
+                           std::array<uint32_t, 4>{count, uint32_t((width + 15) / 16), 0, 0}, count);
+                auto encode_second = [&](NSString *name, std::initializer_list<View> buffers,
+                                         std::array<uint32_t, 4> args, size_t threads) {
+                    ctx.encode(name, second, buffers, args, threads);
+                };
+                metal_detail::radix_sort(initial, next, histogram, radix_work, instances, passes,
+                                         encode_second);
+                ctx.encode(@"identify_ranges", second, {records, img},
+                           std::array<uint32_t, 4>{instances, 0, 0, 0}, instances);
+            }
+            ctx.encode(
+                @"training_render", second,
+                {geo, sub(geo, gl.projected), records, img, sub(img, il.transmittance),
+                 sub(img, il.contributors), sub(geo, gl.camera), out},
+                std::array<uint32_t, 4>{uint32_t(width), uint32_t(height), uint32_t((width + 15) / 16), 0},
+                size_t(width) * height);
+        });
         return {int(instances), output, radii, geometry, binning, image};
     }
 }
@@ -285,7 +315,6 @@ BackwardResult backward(const Tensor &bg, const Tensor &means, const Tensor &rad
                         const Tensor &sh, int degree, const Tensor &campos, const Tensor &geometry,
                         int instances, const Tensor &binning, const Tensor &image, bool debug) {
     @autoreleasepool {
-        (void)debug;
         TORCH_CHECK(grad.dim() == 3 && grad.size(0) == 3, "grad_out must have shape [3,H,W]");
         check_float(grad, "grad_out");
         int h = grad.size(1), w = grad.size(2);
@@ -320,18 +349,17 @@ BackwardResult backward(const Tensor &bg, const Tensor &means, const Tensor &rad
              conic = input.get(gconic);
         auto vm = input.get(means), rad = input.get(radii), vsh = input.get(sh, true),
              vs = input.get(scales, true), vr = input.get(rotations, true);
-        synchronize_torch();
-        auto command = ctx.command();
-        ctx.encode(@"training_backward_render", command,
-                   {geo, sub(geo, gl.projected), records, img, sub(img, il.transmittance),
-                    sub(img, il.contributors), sub(geo, gl.camera), outgrad, m2, conic, op, col},
-                   std::array<uint32_t, 4>{uint32_t(w), uint32_t(h), uint32_t((w + 15) / 16), 0},
-                   size_t(w) * h);
-        ctx.encode(@"training_backward_preprocess", command,
-                   {vm, rad, vsh, sub(geo, gl.clamped), vs, vr, sub(geo, gl.cov), sub(geo, gl.camera), m2,
-                    conic, m3, col, v, shg, sc, rot},
-                   p, count);
-        ctx.complete(command);
+        ctx.execute(debug, [&](id<MTLCommandBuffer> command) {
+            ctx.encode(@"training_backward_render", command,
+                       {geo, sub(geo, gl.projected), records, img, sub(img, il.transmittance),
+                        sub(img, il.contributors), sub(geo, gl.camera), outgrad, m2, conic, op, col},
+                       std::array<uint32_t, 4>{uint32_t(w), uint32_t(h), uint32_t((w + 15) / 16), 0},
+                       size_t(w) * h);
+            ctx.encode(@"training_backward_preprocess", command,
+                       {vm, rad, vsh, sub(geo, gl.clamped), vs, vr, sub(geo, gl.cov), sub(geo, gl.camera), m2,
+                        conic, m3, col, v, shg, sc, rot},
+                       p, count);
+        });
         return {gm2, gc, go, gm3, gv, gsh, gs, gr};
     }
 }
@@ -349,11 +377,10 @@ Tensor visible(const Tensor &means, const Tensor &view, const Tensor &proj) {
         std::lock_guard<std::mutex> lock(ctx.mutex);
         Inputs input;
         auto vm = input.get(means), vv = input.get(view), vo = input.get(out);
-        synchronize_torch();
-        auto command = ctx.command();
-        ctx.encode(@"training_visible", command, {vm, vv, vo},
-                   std::array<uint32_t, 4>{uint32_t(means.size(0)), 0, 0, 0}, means.size(0));
-        ctx.complete(command);
+        ctx.execute(false, [&](id<MTLCommandBuffer> command) {
+            ctx.encode(@"training_visible", command, {vm, vv, vo},
+                       std::array<uint32_t, 4>{uint32_t(means.size(0)), 0, 0, 0}, means.size(0));
+        });
         return out;
     }
 }

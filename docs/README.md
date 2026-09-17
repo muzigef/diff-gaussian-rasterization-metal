@@ -10,6 +10,8 @@
 | --- | --- |
 | 安装、渲染火车示例、切换视角 | [工程 README](../README.md) |
 | 理解模块边界、GPU 流水线和状态保存 | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| 阅读迁移后的实现、性能实测和数值验收结论 | [TILE_MIGRATION_REPORT.md](TILE_MIGRATION_REPORT.md) |
+| 对比迁移前 Metal 与 CUDA / ROCm 的组织及迁移路线 | [TILE_MIGRATION_ANALYSIS.md](TILE_MIGRATION_ANALYSIS.md) |
 | 在 Python 中调用渲染、读取梯度、接入训练 | [PYTHON_API.md](PYTHON_API.md) |
 | 在 C++ 应用中链接库、获取图像或 Metal texture | [CPP_API.md](CPP_API.md) |
 | 准备 PLY、相机、协方差和 JSON 场景 | [DATA_FORMATS.md](DATA_FORMATS.md) |

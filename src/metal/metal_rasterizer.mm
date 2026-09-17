@@ -1,5 +1,6 @@
 #include "dgr/metal_rasterizer.h"
 #include "layout.h"
+#include "primitives.h"
 #include "shader_source.h"
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
@@ -9,6 +10,7 @@
 #include <utility>
 
 namespace dgr {
+using metal_detail::BufferView;
 namespace {
 std::string describe(NSError *error) {
     return error ? std::string(error.localizedDescription.UTF8String) : "unknown Metal error";
@@ -19,11 +21,16 @@ struct Allocator {
     id<MTLDevice> device;
     std::size_t limit;
     std::size_t allocated = 0;
+    metal_detail::Scratch *cache = nullptr;
 
     void reserve(std::size_t size) {
         if (size > limit - allocated)
             throw Error(ErrorCode::resource_limit,
                         "Metal allocation budget exceeds " + std::to_string(limit) + " bytes");
+        // Cached buffers not used by this frame must not push active+cache above
+        // the per-render budget. Evict only the unused tail, preserving live work.
+        if (cache && cache->unused_bytes() > limit - allocated - size)
+            cache->trim();
         allocated += size;
     }
 
@@ -75,6 +82,7 @@ struct MetalRasterizer::Impl {
     id<MTLDevice> device;
     id<MTLCommandQueue> queue;
     NSDictionary<NSString *, id<MTLComputePipelineState>> *pipelines;
+    mutable metal_detail::Scratch scratch;
 
     explicit Impl(RenderLimits l) : limits(l) {
         validate_limits(limits);
@@ -86,6 +94,7 @@ struct MetalRasterizer::Impl {
             throw Error(ErrorCode::gpu, "command queue allocation failed");
         MTLCompileOptions *options = [MTLCompileOptions new];
         options.fastMathEnabled = NO;
+        options.languageVersion = MTLLanguageVersion3_1;
         NSError *error = nil;
         NSString *source = [NSString stringWithUTF8String:detail::shader_source];
         id<MTLLibrary> library = [device newLibraryWithSource:source options:options error:&error];
@@ -93,8 +102,8 @@ struct MetalRasterizer::Impl {
             throw Error(ErrorCode::gpu, "shader compilation: " + describe(error));
         auto *built = [NSMutableDictionary<NSString *, id<MTLComputePipelineState>> dictionary];
         for (NSString *name in @[
-                 @"preprocess", @"scan_step", @"initialize_records", @"duplicate", @"bitonic_step",
-                 @"identify_ranges", @"render"
+                 @"preprocess", @"scan_blocks", @"scan_add", @"duplicate", @"radix_histogram",
+                 @"radix_scatter", @"identify_ranges", @"render"
              ]) {
             id<MTLFunction> function = [library newFunctionWithName:name];
             if (!function)
@@ -103,12 +112,15 @@ struct MetalRasterizer::Impl {
                                                                                          error:&error];
             if (!pipeline)
                 throw Error(ErrorCode::gpu, "pipeline compilation: " + describe(error));
+            if (pipeline.maxTotalThreadsPerThreadgroup < 256 || pipeline.threadExecutionWidth < 8 ||
+                256 % pipeline.threadExecutionWidth)
+                throw Error(ErrorCode::unavailable, "kernel requires a 256-thread group");
             built[name] = pipeline;
         }
         pipelines = [built copy];
     }
 
-    void encode(NSString *name, id<MTLCommandBuffer> command, std::initializer_list<id<MTLBuffer>> buffers,
+    void encode(NSString *name, id<MTLCommandBuffer> command, std::initializer_list<BufferView> buffers,
                 std::array<std::uint32_t, 4> args, std::size_t threads, id<MTLTexture> texture = nil) const {
         if (!threads)
             return;
@@ -119,15 +131,12 @@ struct MetalRasterizer::Impl {
         encoder.label = name;
         [encoder setComputePipelineState:pipeline];
         NSUInteger index = 0;
-        for (id<MTLBuffer> buffer : buffers)
-            [encoder setBuffer:buffer offset:0 atIndex:index++];
+        for (auto view : buffers)
+            [encoder setBuffer:view.buffer offset:view.offset atIndex:index++];
         [encoder setBytes:args.data() length:sizeof(args) atIndex:index];
         if (texture)
             [encoder setTexture:texture atIndex:0];
-        [encoder dispatchThreads:MTLSizeMake(threads, 1, 1)
-            threadsPerThreadgroup:MTLSizeMake(
-                                      std::min<NSUInteger>(256, pipeline.maxTotalThreadsPerThreadgroup), 1,
-                                      1)];
+        metal_detail::dispatch(encoder, pipeline, name, args.data(), threads);
         // Tracked resources and separate serial encoders order dependent scan/sort passes.
         [encoder endEncoding];
     }
@@ -164,7 +173,24 @@ MetalFrame MetalRasterizer::render(const Scene &scene) {
         const auto tiles_x = (width + 15) / 16, tiles_y = (height + 15) / 16;
         const auto pixels = static_cast<std::size_t>(width) * height;
         const auto max_instances = static_cast<std::uint32_t>(m.limits.max_instances);
-        Allocator alloc{m.device, m.limits.max_working_bytes};
+        m.scratch.reset();
+        Allocator alloc{m.device, m.limits.max_working_bytes, 0, &m.scratch};
+        struct Trim {
+            metal_detail::Scratch &s;
+            ~Trim() {
+                s.trim();
+            }
+        } trim{m.scratch};
+        auto temporary = [&](size_t bytes) -> BufferView {
+            bytes = std::max<size_t>(16, bytes);
+            alloc.reserve(bytes);
+            if (bytes > m.device.maxBufferLength)
+                throw Error(ErrorCode::resource_limit, "scratch buffer exceeds device limit");
+            auto buffer = m.scratch.get(m.device, bytes);
+            if (!buffer)
+                throw Error(ErrorCode::resource_limit, "scratch buffer allocation failed");
+            return buffer;
+        };
         id<MTLBuffer> input = alloc.buffer(static_cast<std::size_t>(count) * 13 * sizeof(float));
         // Pack directly into shared memory, without temporary per-Gaussian arrays or a second copy.
         auto *packed = static_cast<float *>(input.contents);
@@ -183,33 +209,30 @@ MetalFrame MetalRasterizer::render(const Scene &scene) {
             c.tan_fov_x,    c.tan_fov_y,   c.background[0],           c.background[1],
             c.background[2]};
         std::copy(params.begin(), params.end(), camera_data + 32);
-        id<MTLBuffer> projected = alloc.buffer(static_cast<std::size_t>(count) * sizeof(detail::Projected));
+        // Even P=0 must bind enough storage for one reflected Projected element.
+        // No candidate is read, but Metal API validation checks the argument type.
+        id<MTLBuffer> projected = alloc.buffer(std::max<size_t>(1, count) * sizeof(detail::Projected));
         id<MTLBuffer> offsets = alloc.buffer(static_cast<std::size_t>(count) * 4);
-        id<MTLBuffer> scratch = alloc.buffer(static_cast<std::size_t>(count) * 4);
+        auto scan_work = temporary(metal_detail::scan_bytes(count));
         id<MTLBuffer> error = alloc.buffer(4);
         id<MTLCommandBuffer> first = command_buffer(m.queue);
         m.encode(@"preprocess", first, {input, camera, projected, offsets, error},
                  {count, width, height, max_instances}, count);
-        for (std::uint32_t stride = 1; stride < count; stride *= 2) {
-            m.encode(@"scan_step", first, {offsets, scratch}, {count, stride, max_instances, 0}, count);
-            id<MTLBuffer> temp = offsets;
-            offsets = scratch;
-            scratch = temp;
-        }
+        auto encode_first = [&](NSString *name, std::initializer_list<BufferView> buffers,
+                                std::array<uint32_t, 4> args,
+                                size_t threads) { m.encode(name, first, buffers, args, threads); };
+        metal_detail::scan(offsets, scan_work, count, max_instances + 1, encode_first);
         complete(first);
         std::uint32_t error_code = 0, instances = 0;
         std::memcpy(&error_code, error.contents, sizeof(error_code));
         if (error_code)
             throw Error(ErrorCode::invalid_input, "invalid projected covariance/coordinates");
-        // The scalar readback remains explicit until a bounded asynchronous allocator is implemented.
+        // Like CUDA/ROCm, read the scanned instance total before sizing the binning buffers.
         if (count)
             std::memcpy(&instances, static_cast<const char *>(offsets.contents) + (count - 1) * 4, 4);
         if (instances > max_instances)
             throw Error(ErrorCode::resource_limit, "tile instance limit exceeded");
-        std::uint32_t padded = 1;
-        while (padded < instances)
-            padded *= 2;
-        id<MTLBuffer> records = alloc.buffer(static_cast<std::size_t>(padded) * sizeof(detail::Record));
+        id<MTLBuffer> records = alloc.buffer(static_cast<std::size_t>(instances) * sizeof(detail::Record));
         id<MTLBuffer> ranges =
             alloc.buffer(static_cast<std::size_t>(tiles_x) * tiles_y * sizeof(detail::Range));
         id<MTLBuffer> final_t = alloc.buffer(pixels * 4), contributors = alloc.buffer(pixels * 4);
@@ -224,12 +247,19 @@ MetalFrame MetalRasterizer::render(const Scene &scene) {
         if (!texture)
             throw Error(ErrorCode::resource_limit, "output texture allocation failed");
         id<MTLCommandBuffer> second = command_buffer(m.queue);
-        m.encode(@"initialize_records", second, {records}, {padded, 0, 0, 0}, padded);
         if (instances) {
-            m.encode(@"duplicate", second, {projected, offsets, records}, {count, tiles_x, 0, 0}, count);
-            for (std::uint32_t k = 2; k <= padded; k *= 2)
-                for (std::uint32_t j = k / 2; j > 0; j /= 2)
-                    m.encode(@"bitonic_step", second, {records}, {padded, j, k, 0}, padded);
+            auto other = temporary(size_t(instances) * sizeof(detail::Record));
+            const auto groups = metal_detail::blocks(instances);
+            auto histogram = temporary(size_t(groups) * 16 * 4);
+            auto radix_work = temporary(metal_detail::scan_bytes(groups * 16));
+            const auto passes = metal_detail::radix_passes(tiles_x * tiles_y);
+            BufferView initial = (passes & 1) ? other : BufferView(records);
+            BufferView next = (passes & 1) ? BufferView(records) : other;
+            m.encode(@"duplicate", second, {projected, offsets, initial}, {count, tiles_x, 0, 0}, count);
+            auto encode_second = [&](NSString *name, std::initializer_list<BufferView> buffers,
+                                     std::array<uint32_t, 4> args,
+                                     size_t threads) { m.encode(name, second, buffers, args, threads); };
+            metal_detail::radix_sort(initial, next, histogram, radix_work, instances, passes, encode_second);
             m.encode(@"identify_ranges", second, {records, ranges}, {instances, 0, 0, 0}, instances);
         }
         m.encode(@"render", second, {input, projected, records, ranges, final_t, contributors, camera},

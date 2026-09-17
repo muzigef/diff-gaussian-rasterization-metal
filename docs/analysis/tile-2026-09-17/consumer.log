@@ -1,0 +1,15 @@
+-- Install configuration: "Release"
+-- Installing: /Users/liqing93/code/diff-gaussian-rasterization-metal/output/migration-20260917/install/lib/libdgr_core.a
+-- Installing: /Users/liqing93/code/diff-gaussian-rasterization-metal/output/migration-20260917/install/lib/libdgr_metal.a
+-- Up-to-date: /Users/liqing93/code/diff-gaussian-rasterization-metal/output/migration-20260917/install/include/dgr
+-- Up-to-date: /Users/liqing93/code/diff-gaussian-rasterization-metal/output/migration-20260917/install/include/dgr/metal_rasterizer.h
+-- Up-to-date: /Users/liqing93/code/diff-gaussian-rasterization-metal/output/migration-20260917/install/include/dgr/reference.h
+-- Up-to-date: /Users/liqing93/code/diff-gaussian-rasterization-metal/output/migration-20260917/install/include/dgr/scene.h
+-- Up-to-date: /Users/liqing93/code/diff-gaussian-rasterization-metal/output/migration-20260917/install/share/dgr/LICENSE.md
+-- Up-to-date: /Users/liqing93/code/diff-gaussian-rasterization-metal/output/migration-20260917/install/lib/cmake/DGR/DGRTargets.cmake
+-- Up-to-date: /Users/liqing93/code/diff-gaussian-rasterization-metal/output/migration-20260917/install/lib/cmake/DGR/DGRTargets-release.cmake
+-- Up-to-date: /Users/liqing93/code/diff-gaussian-rasterization-metal/output/migration-20260917/install/lib/cmake/DGR/DGRConfig.cmake
+-- Up-to-date: /Users/liqing93/code/diff-gaussian-rasterization-metal/output/migration-20260917/install/lib/cmake/DGR/DGRConfigVersion.cmake
+[ 50%] Linking CXX executable consumer
+[100%] Built target consumer
+Apple M3 Pro: installed C++ library works

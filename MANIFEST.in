@@ -5,3 +5,5 @@ recursive-include src *.cpp *.mm *.h
 recursive-include shaders *.metal
 recursive-include bindings *.cpp *.mm *.h
 recursive-include examples *.cpp *.mm *.h
+
+recursive-include tools *.cpp *.py

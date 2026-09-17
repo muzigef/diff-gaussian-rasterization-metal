@@ -1,0 +1,7 @@
+Processing ./output/migration-20260917/wheels/diff_gaussian_rasterization_metal-0.1.0-cp314-cp314-macosx_15_0_arm64.whl
+Installing collected packages: diff-gaussian-rasterization-metal
+Successfully installed diff-gaussian-rasterization-metal-0.1.0
+
+[notice] A new release of pip is available: 25.3 -> 26.2.1
+[notice] To update, run: /Users/liqing93/code/diff-gaussian-rasterization-metal/.venv/bin/python -m pip install --upgrade pip
+Wheel installed and executed forward/backward: /Users/liqing93/code/diff-gaussian-rasterization-metal/output/migration-20260917/wheel-consumer/diff_gaussian_rasterization/_C.cpython-314-darwin.so

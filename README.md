@@ -4,7 +4,7 @@
 
 已实现固定上游版本的 Forward、Backward、SH 0–3 阶、scale/rotation 与预计算 covariance、预计算 RGB、`markVisible` 和 PyTorch MPS custom autograd。原 Python 类名、参数顺序及 `(color, radii)` 返回接口保留。目前通过本机 GPU 和独立 CPU 数学参考测试；**尚不能宣称与 CUDA 在所有输入上完全等价，也未完成性能优化**。
 
-最新[差异审计](docs/DIFFERENCE_ANALYSIS.md)直接执行原 CUDA 数学体：整图对 Metal 的 RMSE 为 9.37e-6，仍有少量阈值像素超限；另修复了退化投影与 PLY 四元数边界行为。当前 17 项原生测试、40 项 Python 测试通过。
+最新[差异审计](docs/DIFFERENCE_ANALYSIS.md)直接执行原 CUDA 数学体：整图对 Metal 的 RMSE 为 9.37e-6，仍有少量阈值像素超限；另修复了退化投影与 PLY 四元数边界行为。现已完成 [tile 协作流水线迁移](docs/TILE_MIGRATION_REPORT.md)，19 项原生测试、45 项 Python 测试通过。真实场景严格跨后端数值门槛尚未全部通过。
 
 兼容目标是提交 [59f5f77e](https://github.com/graphdeco-inria/diff-gaussian-rasterization/tree/59f5f77e3ddbac3ed9db93ec2cfe99ed6c5d121d) 对应的本地源码，实际文件哈希见 [docs/upstream.json](docs/upstream.json)。上游后续新增的 depth/antialiasing 接口不属于这个固定版本。
 
@@ -60,7 +60,7 @@ open output/public/train/metal_00001_980.png
 
 ## 原生 C++ 构建
 
-需要 Apple Silicon Mac、完整 Xcode、CMake 3.24+。原生库使用 C++17；本机验证 Apple M3 Pro、Xcode 26.0.1。CMake 最低部署目标为 macOS 14，但未在最低版本系统实测。
+需要 Apple Silicon Mac、完整 Xcode、CMake 3.24+。原生库使用 C++17；本机验证 Apple M3 Pro、Xcode 26.0.1。MSL 使用 Metal 3.1；CMake 最低部署目标为 macOS 14，但未在最低版本系统实测。
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -173,7 +173,7 @@ Python 扩展与原生库使用各自的构建产物，仅构建 `build/` 中的
 | [docs/MIGRATION.md](docs/MIGRATION.md) | 兼容语义、资源与架构约定、未完成工作 |
 | [docs/VALIDATION.md](docs/VALIDATION.md) | 已执行的测试及证据边界 |
 
-当前使用多 pass scan 和 bitonic sort，并同步等待 GPU、每次分配资源；未据此宣称 C++ 比 Swift 更快，也未宣称接近 CUDA 吞吐。
+当前使用 16×16 tile 协作前向/反向、分层 scan、稳定 radix sort、device 浮点原子累加和临时资源池。PyTorch 直接接入当前 MPS stream。相同 M3 Pro、相同模型的预热计时中，980 像素宽前向由 209 ms 降至 26 ms，反向由 231 ms 降至 18 ms；方法与限制见[迁移报告](docs/TILE_MIGRATION_REPORT.md)。
 
 ## 来源与许可证
 

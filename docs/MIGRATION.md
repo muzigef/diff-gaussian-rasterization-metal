@@ -65,7 +65,7 @@ Objective-C++ 是私有 Apple API 实现层，公共原生接口是标准 C++。
 
 所有非空训练输入 Tensor 必须在 MPS 上且为 float32。支持非连续输入，必要时在 GPU 上转连续；不满足 16 字节对齐的连续切片另行 clone，避免 float4 绑定错位。空可选 Tensor 可以保留原 wrapper 的 CPU sentinel。
 
-访问 MPS buffer 前同步当前 PyTorch MPS stream，然后通过自己的串行 Metal queue 调度，等待完成后返回。图像、Gaussian 与梯度保留在 MPS buffer；Forward 回读错误码和实例总数两个标量。debug 快照和显式导出会回读数据。
+直接在当前 PyTorch MPS stream 的 command buffer 上编码，保持与前后 MPS 运算的队列顺序。仅 Forward 的实例数/错误码回读必须等待；其余阶段默认异步提交，`debug=True` 增加完成等待。图像、Gaussian 与梯度保留在 MPS buffer；Forward 回读错误码和实例总数两个标量。debug 快照和显式导出会回读数据。
 
 使用 Torch 内部 storage/stream API；本机验证 Torch 2.14.0，其他版本需重新编译测试。原生 renderer 实例需串行使用，可移动不可复制。MetalFrame 可复制共享资源，renderer 销毁后 frame 仍有效；借用 texture 不能释放或修改。保留多个 frame 或 autograd graph 会累积内存。
 
@@ -90,6 +90,8 @@ Objective-C++ 是私有 Apple API 实现层，公共原生接口是标准 C++。
 
 训练入口不沿用 demo 的数量/预算限制；宽高各最多 8192，实例最多 0x3fffffff，实际受 GPU 内存限制。非法或过大的投影会拒绝，原生入口另检查有限值、正定性和 opacity；畸形输入的错误行为不模仿 CUDA 未定义行为。
 
+2026-09-17 的完整迁移与实测记录见 [TILE_MIGRATION_REPORT.md](TILE_MIGRATION_REPORT.md)。
+
 ## 后续验收
 
 | 项目 | 当前状态 | 后续工作 |
@@ -98,11 +100,11 @@ Objective-C++ 是私有 Apple API 实现层，公共原生接口是标准 C++。
 | Forward / Backward / API | 所列路径已实现并通过小型 GPU 对照 | 扩大随机和阈值边界覆盖 |
 | 官方数据 | 定点下载、PLY/相机加载、渲染和指标工具 | 精确确认 checkpoint 与图片对应 |
 | CUDA golden | 尚无同输入逐阶段/梯度输出 | 获取可追溯 golden，在本机持续对照 |
-| scan | 多 pass Hillis–Steele，饱和计数 | 分块 scan |
-| sort | 补齐至 2 的幂的 bitonic，稳定 ID | radix sort、scratch 复用 |
-| render | 每像素顺序读取候选 | threadgroup memory 批量加载 |
-| Backward 累加 | uint CAS 的 Float32 原子累加 | 归约减少竞争，验证误差 |
-| 调度 | 同步等待、每次独立分配 | 资源池、异步 stream、峰值内存统计 |
+| scan | 256 元素分块、递归块扫描与 uniform add，饱和计数 | 更广设备上的调优 |
+| sort | 稳定 4-bit radix，精确实例长度，scratch 复用 | 更广规模上的调优 |
+| render | 16×16 tile，256 候选共享批次，整组结束判断 | 更多场景吞吐测量 |
+| Backward 累加 | tile 逆序批次 + device atomic_float；保持逐像素原子加法 | 敏感协方差数值分析；不默改为归约 |
+| 调度 | 当前 MPS stream、暂存池；saved state 独立保留 | GPU 时间线及真正峰值内存采样 |
 | 上层训练 | 20 步 Adam 小型优化测试 | 完整 3DGS 训练与 densification 适配 |
 
 只有这台 Mac 不阻止移植和本地验证。公开图像可以验证真实场景，但不能证明每项反向梯度正确。跨 GPU 浮点及原子累加顺序不保证逐位一致。功能覆盖与 CUDA 数值等价分别验收。

@@ -70,3 +70,32 @@ def test_finite_negative_determinant_matches_upstream_branch(source_library):
     forward,metal=metal_forward(data,settings)
     np.testing.assert_array_equal(metal['radii'],state['radii'])
     np.testing.assert_allclose(array(forward[1]),expected,atol=2e-4,rtol=2e-4)
+
+
+@pytest.mark.parametrize('opacity', [0.0045, 0.95])
+def test_cooperative_reverse_batches_and_edge_pixels(source_library, opacity):
+    """All equal depths, three batches, edge tiles, alpha skips and early stops."""
+    _, settings = fixture()
+    settings = settings._replace(image_width=33, image_height=19)
+    n = 769
+    rng = np.random.default_rng(731)
+    values = {'means3D':np.tile([0.,0.,2.], (n,1)), 'means2D':np.zeros((n,3)),
+              'opacities':np.full((n,1),opacity),
+              'colors_precomp':rng.uniform(0.1,0.9,(n,3)),
+              'cov3D_precomp':np.tile([.2,0,0,.2,0,.1], (n,1))}
+    data = {k:torch.tensor(v,dtype=torch.float32,device='mps') for k,v in values.items()}
+    oracle = Oracle(source_library); oracle.inputs(data,settings)
+    state = oracle.preprocess(); expected = oracle.render(state)
+    forward, metal = metal_forward(data,settings)
+    for key in ('ids','ranges','last'):
+        np.testing.assert_array_equal(metal[key],state[key],err_msg=key)
+    np.testing.assert_allclose(array(forward[1]),expected,atol=2e-4,rtol=0)
+    if opacity < .01:
+        assert metal['last'].max() > 512  # Actually exercises the third loaded batch.
+    else:
+        assert metal['last'][9,16] < 256  # Invalid/finished lanes still reach barriers.
+    gradient = rng.normal(0,.001,expected.shape).astype(np.float32)
+    actual = metal_backward(data,settings,forward,gradient)
+    reference = oracle.backward(metal,gradient)
+    for key in actual:
+        np.testing.assert_allclose(actual[key],reference[key],atol=5e-4,rtol=2e-3,err_msg=key)

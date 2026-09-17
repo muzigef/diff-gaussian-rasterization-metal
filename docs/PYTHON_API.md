@@ -137,3 +137,9 @@ print("near-visible:", rasterizer.markVisible(data["means3D"]).cpu().tolist())
 `debug=True` 的异常快照写入当前工作目录的 `snapshot_fw.dump` 或 `snapshot_bw.dump`，可能覆盖同名文件并包含完整输入。正常渲染不会因此生成快照，也不会启用 GPU capture。
 
 底层 `_C` 接口供 wrapper 使用。Forward 返回实例数、color、radii、geometry、binning、image；Backward 返回 means2D、RGB、opacity、means3D、covariance、SH、scale、rotation 的梯度。其确切签名见 [api.h](../bindings/torch/api.h)，状态 buffer 不应手工构造或跨后端复用。
+
+## GPU 提交与计时
+
+调用接入当前 PyTorch MPS stream。Forward 的实例数/错误码检查有一次 GPU 等待，其余渲染及 Backward 默认异步；读取 `.cpu()` / `.item()` 会等待对应数据。测量 GPU 实际完成时间时，在计时开始和结束处调用 `torch.mps.synchronize()`。`debug=True` 额外等待 Forward / Backward 完成，有助于将 GPU 错误定位到当前调用。
+
+每个 autograd graph 保留自己的三个 saved-state 缓冲；scan/sort 的临时空间在同一 stream 中复用。多图保留不会覆盖旧状态，但会增加内存。浮点原子累加顺序不确定，因此 `debug=True` 不提供确定性梯度。

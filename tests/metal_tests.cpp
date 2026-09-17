@@ -116,6 +116,29 @@ int main(int argc, char **argv) {
                   compare(scene(p, 17, 19));
               }
           }},
+         {"hierarchical_sort",
+          [] {
+              // Three scan levels; repeated depth keys span hundreds of radix blocks.
+              std::vector<dgr::Gaussian> points;
+              for (int i = 0; i < 65537; ++i) {
+                  float z = i % 7 == 0 ? .1f : 1.0f + ((i * 31) % 97) / 64.f;
+                  points.push_back(gaussian({0, 0, z}, {float(i % 13) / 13, .2f, .7f}, .001f));
+              }
+              compare(scene(points, 1, 1));
+              // Reuse a large scratch pool for a much smaller, all-equal key set.
+              points.assign(1025, gaussian({0, 0, 2}, {.2f, .3f, .7f}, .004f));
+              compare(scene(points, 17, 19));
+              compare(scene({}, 1, 1));
+          }},
+         {"tile_batches",
+          [] {
+              // Partial edge tiles and > 2 batches: some lanes terminate early,
+              // others keep loading candidates that contribute beyond index 256.
+              std::vector<dgr::Gaussian> points;
+              for (int i = 0; i < 769; ++i)
+                  points.push_back(gaussian({0, 0, 2}, {float(i % 11) / 11, .3f, .6f}, i < 3 ? .95f : .01f));
+              compare(scene(points, 33, 35));
+          }},
          {"camera",
           [] {
               auto s =

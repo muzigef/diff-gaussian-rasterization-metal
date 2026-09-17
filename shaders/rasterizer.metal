@@ -80,18 +80,82 @@ kernel void preprocess(device const float *input [[buffer(0)]], device const flo
     counts[id] = min(count, dims.w + 1);
 }
 
-// Inclusive Hillis-Steele scan. Saturation reports overflow before allocating the instance list.
-kernel void scan_step(device const uint *input [[buffer(0)]], device uint *output [[buffer(1)]],
-                      constant uint4 &args [[buffer(2)]], uint id [[thread_position_in_grid]]) {
-    if (id >= args.x)
-        return;
-    output[id] = min(args.z + 1, input[id] + (id >= args.y ? input[id - args.y] : 0));
+// Hierarchical inclusive scan, with saturated addition before any uint overflow.
+// Every dispatched group has 256 lanes, including the final partial block.
+uint capped_add(uint a, uint b, uint cap) {
+    return a + min(b, cap - a);
 }
-
-kernel void initialize_records(device uint4 *records [[buffer(0)]], constant uint4 &args [[buffer(1)]],
-                               uint id [[thread_position_in_grid]]) {
+kernel void scan_blocks(device uint *values [[buffer(0)]], device uint *sums [[buffer(1)]],
+                        constant uint4 &args [[buffer(2)]], uint lane [[thread_index_in_threadgroup]],
+                        uint group [[threadgroup_position_in_grid]]) {
+    threadgroup uint shared[256];
+    uint id = group * 256 + lane;
+    shared[lane] = id < args.x ? min(values[id], args.y) : 0;
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    for (uint stride = 1; stride < 256; stride <<= 1) {
+        uint value = shared[lane];
+        if (lane >= stride)
+            value = capped_add(value, shared[lane - stride], args.y);
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        shared[lane] = value;
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
     if (id < args.x)
-        records[id] = uint4(0xffffffffu);
+        values[id] = shared[lane];
+    if (lane == 255)
+        sums[group] = shared[255];
+}
+kernel void scan_add(device uint *values [[buffer(0)]], device const uint *sums [[buffer(1)]],
+                     constant uint4 &args [[buffer(2)]], uint id [[thread_position_in_grid]]) {
+    if (id < args.x && id >= 256)
+        values[id] = capped_add(values[id], sums[id / 256 - 1], args.y);
+}
+uint radix_digit(uint4 record, uint pass) {
+    return pass < 8 ? (record.y >> (pass * 4)) & 15 : (record.x >> ((pass - 8) * 4)) & 15;
+}
+kernel void radix_histogram(device const uint4 *records [[buffer(0)]], device uint *hist [[buffer(1)]],
+                            constant uint4 &args [[buffer(2)]], uint lane [[thread_index_in_threadgroup]],
+                            uint group [[threadgroup_position_in_grid]]) {
+    threadgroup atomic_uint counts[16];
+    if (lane < 16)
+        atomic_store_explicit(counts + lane, 0, memory_order_relaxed);
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    uint id = group * 256 + lane;
+    if (id < args.x)
+        atomic_fetch_add_explicit(counts + radix_digit(records[id], args.z), 1, memory_order_relaxed);
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    if (lane < 16)
+        hist[lane * args.y + group] = atomic_load_explicit(counts + lane, memory_order_relaxed);
+}
+kernel void radix_scatter(device const uint4 *input [[buffer(0)]], device uint4 *output [[buffer(1)]],
+                          device const uint *prefix [[buffer(2)]], constant uint4 &args [[buffer(3)]],
+                          uint lane [[thread_index_in_threadgroup]],
+                          uint group [[threadgroup_position_in_grid]],
+                          uint simd_lane [[thread_index_in_simdgroup]],
+                          uint simd_group [[simdgroup_index_in_threadgroup]],
+                          uint simd_width [[threads_per_simdgroup]]) {
+    // The host checks SIMD width >= 8 and that it divides the 256-thread group.
+    threadgroup uint counts[16 * 32];
+    uint id = group * 256 + lane, groups = 256 / simd_width;
+    bool valid = id < args.x;
+    uint4 record = valid ? input[id] : uint4(0);
+    uint digit = radix_digit(record, args.z), rank = 0;
+    for (uint bucket = 0; bucket < 16; ++bucket) {
+        uint match = uint(valid && digit == bucket);
+        uint preceding = simd_prefix_exclusive_sum(match), total = simd_sum(match);
+        if (digit == bucket)
+            rank = preceding;
+        if (simd_lane == 0)
+            counts[bucket * groups + simd_group] = total;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    for (uint i = 0; i < simd_group; ++i)
+        rank += counts[digit * groups + i];
+    if (valid) {
+        uint bucket_block = digit * args.y + group;
+        uint base = bucket_block ? prefix[bucket_block - 1] : 0;
+        output[base + rank] = record;
+    }
 }
 
 kernel void duplicate(device const Projected *projected [[buffer(0)]],
@@ -108,24 +172,6 @@ kernel void duplicate(device const Projected *projected [[buffer(0)]],
     }
 }
 
-bool less_record(uint4 a, uint4 b) {
-    return a.x < b.x || (a.x == b.x && (a.y < b.y || (a.y == b.y && a.z < b.z)));
-}
-
-// Explicit Gaussian ID tie-break reproduces stable input order for equal tile/depth keys.
-kernel void bitonic_step(device uint4 *records [[buffer(0)]], constant uint4 &args [[buffer(1)]],
-                         uint id [[thread_position_in_grid]]) {
-    uint partner = id ^ args.y;
-    if (id >= args.x || partner <= id)
-        return;
-    uint4 a = records[id], b = records[partner];
-    bool ascending = (id & args.z) == 0;
-    if (ascending ? less_record(b, a) : less_record(a, b)) {
-        records[id] = b;
-        records[partner] = a;
-    }
-}
-
 kernel void identify_ranges(device const uint4 *records [[buffer(0)]], device uint *ranges [[buffer(1)]],
                             constant uint4 &args [[buffer(2)]], uint id [[thread_position_in_grid]]) {
     if (id >= args.x)
@@ -138,41 +184,96 @@ kernel void identify_ranges(device const uint4 *records [[buffer(0)]], device ui
         ranges[tile * 2 + 1] = id + 1;
 }
 
+// One 16x16 threadgroup cooperatively loads consecutive candidates, just as
+// CUDA/ROCm load a batch into shared memory. Finished/invalid pixels keep loading
+// and attending barriers until the entire tile is done.
+struct TileBatch {
+    float2 xy[256];
+    float4 conic[256];
+    packed_float3 rgb[256];
+    uint ids[256];
+    uint active[256];
+};
+struct PixelResult {
+    float3 rgb;
+    float t;
+    uint last;
+};
+bool tile_done(bool done, threadgroup uint *active, uint lane, uint simd_lane, uint simd_group,
+               uint simd_width) {
+    uint count = simd_sum(uint(!done));
+    if (simd_lane == 0)
+        active[simd_group] = count;
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    uint total = 0;
+    for (uint i = 0; i < 256 / simd_width; ++i)
+        total += active[i];
+    return total == 0;
+}
+void load_candidate(threadgroup TileBatch &batch, uint lane, uint id, device const Projected *projected,
+                    device const float *packed) {
+    batch.ids[lane] = id;
+    batch.xy[lane] = projected[id].centerDepthRadius.xy;
+    batch.conic[lane] = projected[id].conicOpacity;
+    batch.rgb[lane] = packed_float3(packed[id * 13 + 9], packed[id * 13 + 10], packed[id * 13 + 11]);
+}
+PixelResult render_tile(device const float *packed, device const Projected *projected,
+                        device const uint4 *records, uint2 range, uint2 xy, bool inside,
+                        threadgroup TileBatch &batch, uint lane, uint simd_lane, uint simd_group,
+                        uint simd_width) {
+    PixelResult result = {float3(0), 1.0f, 0};
+    bool done = !inside;
+    for (uint base = range.x; base < range.y; base += 256) {
+        if (tile_done(done, batch.active, lane, simd_lane, simd_group, simd_width))
+            break;
+        uint index = base + lane;
+        if (index < range.y)
+            load_candidate(batch, lane, records[index].z, projected, packed);
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        for (uint j = 0; !done && j < min(256u, range.y - base); ++j) {
+            float2 d = batch.xy[j] - float2(xy);
+            float4 co = batch.conic[j];
+            float power = -0.5f * (co.x * d.x * d.x + co.z * d.y * d.y) - co.y * d.x * d.y;
+            if (power > 0)
+                continue;
+            float alpha = min(0.99f, co.w * exp(power));
+            if (alpha < 1.0f / 255.0f)
+                continue;
+            float next = result.t * (1.0f - alpha);
+            if (next < 0.0001f) {
+                done = true;
+                continue;
+            }
+            result.rgb += float3(batch.rgb[j]) * alpha * result.t;
+            result.t = next;
+            result.last = base + j - range.x + 1;
+        }
+        // The next tile_done barrier also protects this batch from being overwritten.
+    }
+    return result;
+}
 kernel void render(device const float *input [[buffer(0)]], device const Projected *projected [[buffer(1)]],
                    device const uint4 *records [[buffer(2)]], device const uint2 *ranges [[buffer(3)]],
                    device float *finalT [[buffer(4)]], device uint *lastContributor [[buffer(5)]],
                    device const float *camera [[buffer(6)]], constant uint4 &args [[buffer(7)]],
                    texture2d<float, access::write> color [[texture(0)]],
-                   uint pixel [[thread_position_in_grid]]) {
-    if (pixel >= args.x * args.y)
+                   uint2 tile [[threadgroup_position_in_grid]],
+                   uint2 local [[thread_position_in_threadgroup]], uint lane [[thread_index_in_threadgroup]],
+                   uint simd_lane [[thread_index_in_simdgroup]],
+                   uint simd_group [[simdgroup_index_in_threadgroup]],
+                   uint simd_width [[threads_per_simdgroup]]) {
+    threadgroup TileBatch batch;
+    uint2 xy = tile * 16 + local;
+    bool inside = xy.x < args.x && xy.y < args.y;
+    PixelResult r = render_tile(input, projected, records, ranges[tile.y * args.z + tile.x], xy, inside,
+                                batch, lane, simd_lane, simd_group, simd_width);
+    if (!inside)
         return;
-    uint2 xy(pixel % args.x, pixel / args.x);
-    uint2 range = ranges[(xy.y / 16) * args.z + xy.x / 16];
-    float t = 1.0f;
-    float3 rgb(0);
-    uint last = 0;
-    for (uint index = range.x; index < range.y; index++) {
-        uint id = records[index].z;
-        Projected p = projected[id];
-        float2 d = p.centerDepthRadius.xy - float2(xy);
-        float4 co = p.conicOpacity;
-        float power = -0.5f * (co.x * d.x * d.x + co.z * d.y * d.y) - co.y * d.x * d.y;
-        if (power > 0)
-            continue;
-        float alpha = min(0.99f, co.w * exp(power));
-        if (alpha < 1.0f / 255.0f)
-            continue;
-        float next = t * (1.0f - alpha);
-        if (next < 0.0001f)
-            break;
-        rgb += float3(input[id * 13 + 9], input[id * 13 + 10], input[id * 13 + 11]) * alpha * t;
-        t = next;
-        last = index - range.x + 1;
-    }
-    finalT[pixel] = t;
-    lastContributor[pixel] = last;
-    rgb += t * float3(camera[38], camera[39], camera[40]);
+    uint pixel = xy.y * args.x + xy.x;
+    finalT[pixel] = r.t;
+    lastContributor[pixel] = r.last;
+    r.rgb += r.t * float3(camera[38], camera[39], camera[40]);
     if (args.w == 0)
-        rgb = float3(0); // Match the original Python bridge's P=0 black image.
-    color.write(float4(rgb, 1.0f), xy);
+        r.rgb = float3(0);
+    color.write(float4(r.rgb, 1.0f), xy);
 }

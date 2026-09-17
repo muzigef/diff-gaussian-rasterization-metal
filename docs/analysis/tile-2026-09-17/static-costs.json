@@ -1,0 +1,49 @@
+{
+  "date": "2026-09-17",
+  "kind": "static_work_count_from_current_loops_and_saved_metal_scene_counts",
+  "not_a_timing_or_DRAM_measurement": true,
+  "shader_and_host_sha256": {
+    "shaders/rasterizer.metal": "534d52bad87e68d1f5e3d7f0bddc36cdeda42f23e9b48bfcfee1fc06ea1c64e3",
+    "shaders/training.metal": "9d6ce0b2191f56e723e8c1cdf5b120055bfb85446c4626a913e799f58ceecf9e",
+    "src/metal/metal_rasterizer.mm": "59511b9ee0a02442ddca516c9bbd8e21e77bc31a2ac64f79f5f7e26d078a9ba0",
+    "bindings/torch/bridge.mm": "f84f2dca507f7407ed88f53dbc701124f9b2f3563f8af9188264498cb8b9eef7"
+  },
+  "cases": [
+    {
+      "case": "00001_980",
+      "backend": "metal",
+      "resolution": [
+        980,
+        545
+      ],
+      "gaussians": 559263,
+      "tile_instances": 2949986,
+      "tiles": 2170,
+      "scan_passes": 20,
+      "padded_records": 4194304,
+      "bitonic_passes": 253,
+      "record_buffer_bytes": 67108864,
+      "logical_sort_record_read_bytes": 16978542592,
+      "logical_sort_record_read_gib": 15.8125,
+      "historical_report_sha256": "9e7a3f4a892f89e33e71e80c943e00600f3dec04246ae6719f081073f815c485"
+    },
+    {
+      "case": "00001_1959",
+      "backend": "metal",
+      "resolution": [
+        1959,
+        1090
+      ],
+      "gaussians": 559263,
+      "tile_instances": 8242730,
+      "tiles": 8487,
+      "scan_passes": 20,
+      "padded_records": 8388608,
+      "bitonic_passes": 276,
+      "record_buffer_bytes": 134217728,
+      "logical_sort_record_read_bytes": 37044092928,
+      "logical_sort_record_read_gib": 34.5,
+      "historical_report_sha256": "9d13549c90ba09ec25fe44f1021042dcc0ea50f88693c94bfedff91c02d9a1d9"
+    }
+  ]
+}

@@ -132,6 +132,12 @@ ctest --test-dir build-cpu --output-on-failure
 
 ## 性能与结果记录
 
-先运行预热，再重复相同规模和输入，分别记录端到端耗时、纯 GPU command 时间、显式回读时间、点数、tile 实例数和内存。MPS 外围计时应在测量边界同步；当前绑定自身也同步等待，记录结果时应说明这一点。
+先运行预热，再重复相同规模和输入，分别记录端到端耗时、纯 GPU command 时间、显式回读时间、点数、tile 实例数和内存。MPS 外围计时应在测量边界同步；绑定仅在 Forward 标量回读时必须等待，其余默认异步，因此不能只测 Python 调用返回时间。
 
-单次冷启动、不同分辨率或包含不同回读工作量的时间不能直接比较。当前 scan/sort 和分配方案尚待优化，没有经过生产吞吐或长期运行验收。修改时保留小场景正确性与真实模型诊断两类证据，后续计划见 [MIGRATION.md](MIGRATION.md)。
+单次冷启动、不同分辨率或包含不同回读工作量的时间不能直接比较。分层 scan、稳定 radix、tile 协作与 scratch 池已落地，但尚无多设备生产吞吐或长期运行验收。修改时保留小场景正确性与真实模型诊断两类证据，后续计划见 [MIGRATION.md](MIGRATION.md)。
+
+## Tile 迁移的回归与基准
+
+新增 `metal.hierarchical_sort` 覆盖 65,537 个输入、三级扫描和跨块同键稳定性；`metal.tile_batches` 与 Python 原源码对照覆盖 769 个候选、部分 tile 和提前终止。Python 另验证异步 producer/consumer、临时切片复用、12 个保留图、debug 同步与并发调用。
+
+`tools/benchmark_scene.py` 对相同 CPU Tensor snapshot 预热并重复测量，计时边界执行 `torch.mps.synchronize()`，不包含图像/梯度回读。`tools/validate_tile_migration.py` 重放保存的七组 Metal/ROCm/CPU 配对结果；`tools/audit_gradient_repeats.py` 在同一个 Forward 缓冲上反复 Backward，量化原子累加变化。资产要求、完整命令和门槛见[迁移报告](TILE_MIGRATION_REPORT.md)。

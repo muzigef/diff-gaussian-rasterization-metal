@@ -20,9 +20,12 @@ def brace_body(text, marker):
     return text[start + 1:end - 1]
 
 
-def build(upstream, output):
+def build(upstream, output, glm=None):
     upstream, output = Path(upstream).resolve(), Path(output).resolve()
     output.mkdir(parents=True, exist_ok=True)
+    glm = Path(glm).resolve() if glm else upstream / 'third_party/glm'
+    if not (glm / 'glm/glm.hpp').is_file():
+        raise FileNotFoundError(f'GLM headers not found under {glm}; initialize the submodule or pass glm')
     forward = (upstream / 'cuda_rasterizer/forward.cu').read_text()
     backward = (upstream / 'cuda_rasterizer/backward.cu').read_text()
     fmath = forward[forward.index('__device__'):forward.index('// Main rasterization method.')]
@@ -70,7 +73,7 @@ static_assert(sizeof(glm::vec3)==12 && sizeof(glm::vec4)==16);
     generated.write_text(source)
     library = output / 'upstream_host.dylib'
     command = ['clang++', '-std=c++17', '-O2', '-ffp-contract=off', '-fno-fast-math', '-shared',
-               '-fPIC', '-I' + str(upstream / 'third_party/glm'), str(generated), '-o', str(library)]
+               '-fPIC', '-I' + str(glm), str(generated), '-o', str(library)]
     subprocess.run(command, check=True)
     files = ['cuda_rasterizer/forward.cu', 'cuda_rasterizer/backward.cu',
              'cuda_rasterizer/auxiliary.h', 'cuda_rasterizer/config.h']
@@ -86,6 +89,7 @@ if __name__ == '__main__':
     root = Path(__file__).resolve().parents[2]
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--upstream', type=Path, default=root.parent/'diff-gaussian-rasterization')
+    parser.add_argument('--glm', type=Path)
     parser.add_argument('--output', type=Path, default=root/'output/analysis/oracle')
     args = parser.parse_args()
-    print(build(args.upstream, args.output))
+    print(build(args.upstream, args.output, args.glm))

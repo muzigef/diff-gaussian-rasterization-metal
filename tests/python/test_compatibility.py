@@ -208,3 +208,48 @@ def test_singular_projected_covariance_skips_only_that_gaussian():
     image.sum().backward()
     for value in data.values():
         assert value.grad[0].count_nonzero().item()==0
+
+
+@pytest.mark.parametrize('debug', [False, True])
+def test_stream_ordering_and_temporary_storage_reuse(debug):
+    """MPS producers, unaligned temporary inputs, retained graphs and GPU consumers."""
+    data, settings = fixture(degree=3, use_sh=True, use_scales=True)
+    settings = settings._replace(image_width=33, image_height=19, debug=debug)
+    renderer = GaussianRasterizer(settings)
+    expected, _ = renderer(**data)
+    results = []
+    for i in range(12):
+        # Fresh producers enqueue MPS work. No cpu()/item()/synchronize() in this loop.
+        inputs = {k:v * 1.0 for k,v in data.items()}
+        flat = torch.cat([torch.zeros(1,device='mps'), inputs['rotations'].flatten()])
+        inputs['rotations'] = flat[1:].reshape_as(data['rotations'])
+        out, _ = renderer(**inputs)
+        results.append(out.square() + out * .3)
+        del inputs, out, flat
+        # Stress the allocator while previous GPU submissions may still be running.
+        for shape in [(2,4),(2,16,3),(3,19,33),(4096,)]:
+            torch.empty(shape,device='mps').fill_(123)
+    loss = torch.stack(results).sum()
+    loss.backward()
+    target = (expected.square() + expected * .3).detach().cpu()
+    for value in results:
+        torch.testing.assert_close(value.detach().cpu(),target,atol=0,rtol=0)
+    for value in data.values():
+        assert value.grad is not None and value.grad.isfinite().all()
+
+
+def test_concurrent_python_callers():
+    from concurrent.futures import ThreadPoolExecutor
+    def render_one(seed):
+        data, settings = fixture()
+        data = {k:v.detach().clone().requires_grad_(True) for k,v in data.items()}
+        with torch.no_grad(): data['colors_precomp'].mul_(.1 * seed)
+        image, _ = GaussianRasterizer(settings)(**data)
+        image.sum().backward()
+        return image.detach().cpu(), data['colors_precomp'].grad.cpu()
+    expected = [render_one(seed) for seed in range(1,5)]
+    with ThreadPoolExecutor(max_workers=4) as workers:
+        actual = list(workers.map(render_one,range(1,5)))
+    for (image,grad),(ref,rgrad) in zip(actual,expected):
+        torch.testing.assert_close(image,ref,atol=0,rtol=0)
+        torch.testing.assert_close(grad,rgrad,atol=5e-4,rtol=2e-3)

@@ -498,52 +498,35 @@ kernel void training_radii(device const Projected *projected [[buffer(0)]], devi
         radii[id] = int(projected[id].centerDepthRadius.w);
 }
 
-kernel void training_render(device const float *packed [[buffer(0)]],
-                            device const Projected *projected [[buffer(1)]],
-                            device const uint4 *records [[buffer(2)]],
-                            device const uint2 *ranges [[buffer(3)]], device float *finalT [[buffer(4)]],
-                            device uint *lastContributor [[buffer(5)]],
-                            device const float *camera [[buffer(6)]], device float *output [[buffer(7)]],
-                            constant uint4 &p [[buffer(8)]], uint pixel [[thread_position_in_grid]]) {
-    uint size = p.x * p.y;
-    if (pixel >= size)
+kernel void
+training_render(device const float *packed [[buffer(0)]], device const Projected *projected [[buffer(1)]],
+                device const uint4 *records [[buffer(2)]], device const uint2 *ranges [[buffer(3)]],
+                device float *finalT [[buffer(4)]], device uint *lastContributor [[buffer(5)]],
+                device const float *camera [[buffer(6)]], device float *output [[buffer(7)]],
+                constant uint4 &p [[buffer(8)]], uint2 tile [[threadgroup_position_in_grid]],
+                uint2 local [[thread_position_in_threadgroup]], uint lane [[thread_index_in_threadgroup]],
+                uint simd_lane [[thread_index_in_simdgroup]],
+                uint simd_group [[simdgroup_index_in_threadgroup]],
+                uint simd_width [[threads_per_simdgroup]]) {
+    threadgroup TileBatch batch;
+    uint2 xy = tile * 16 + local;
+    bool inside = xy.x < p.x && xy.y < p.y;
+    PixelResult r = render_tile(packed, projected, records, ranges[tile.y * p.z + tile.x], xy, inside, batch,
+                                lane, simd_lane, simd_group, simd_width);
+    if (!inside)
         return;
-    uint2 xy(pixel % p.x, pixel / p.x);
-    uint2 range = ranges[(xy.y / 16) * p.z + xy.x / 16];
-    float t = 1;
-    float3 rgb(0);
-    uint last = 0;
-    for (uint index = range.x; index < range.y; index++) {
-        uint id = records[index].z;
-        Projected g = projected[id];
-        float2 d = g.centerDepthRadius.xy - float2(xy);
-        float4 co = g.conicOpacity;
-        float power = -0.5f * (co.x * d.x * d.x + co.z * d.y * d.y) - co.y * d.x * d.y;
-        if (power > 0)
-            continue;
-        float alpha = min(0.99f, co.w * exp(power));
-        if (alpha < 1.0f / 255.0f)
-            continue;
-        float next = t * (1 - alpha);
-        if (next < 0.0001f)
-            break;
-        rgb += float3(packed[id * 13 + 9], packed[id * 13 + 10], packed[id * 13 + 11]) * alpha * t;
-        t = next;
-        last = index - range.x + 1;
-    }
-    finalT[pixel] = t;
-    lastContributor[pixel] = last;
-    rgb += t * float3(camera[38], camera[39], camera[40]);
+    uint pixel = xy.y * p.x + xy.x, size = p.x * p.y;
+    finalT[pixel] = r.t;
+    lastContributor[pixel] = r.last;
+    r.rgb += r.t * float3(camera[38], camera[39], camera[40]);
     for (uint ch = 0; ch < 3; ch++)
-        output[ch * size + pixel] = rgb[ch];
+        output[ch * size + pixel] = r.rgb[ch];
 }
 
+// Metal 3 device float atomics preserve upstream per-pixel atomic-add semantics.
+// A uint-CAS emulation causes severe contention when all tile lanes update one Gaussian.
 void add_float(device float *address, float value) {
-    device atomic_uint *ptr = (device atomic_uint *)address;
-    uint old = atomic_load_explicit(ptr, memory_order_relaxed);
-    while (!atomic_compare_exchange_weak_explicit(ptr, &old, as_type<uint>(as_type<float>(old) + value),
-                                                  memory_order_relaxed, memory_order_relaxed)) {
-    }
+    atomic_fetch_add_explicit((device atomic_float *)address, value, memory_order_relaxed);
 }
 
 kernel void training_backward_render(
@@ -553,52 +536,62 @@ kernel void training_backward_render(
     device const float *camera [[buffer(6)]], device const float *grad_pixels [[buffer(7)]],
     device float *grad_mean2d [[buffer(8)]], device float *grad_conic [[buffer(9)]],
     device float *grad_opacity [[buffer(10)]], device float *grad_colors [[buffer(11)]],
-    constant uint4 &p [[buffer(12)]], uint pixel [[thread_position_in_grid]]) {
+    constant uint4 &p [[buffer(12)]], uint2 tile [[threadgroup_position_in_grid]],
+    uint2 local [[thread_position_in_threadgroup]], uint lane [[thread_index_in_threadgroup]]) {
+    threadgroup TileBatch batch;
     uint size = p.x * p.y;
-    if (pixel >= size)
-        return;
-    uint2 xy(pixel % p.x, pixel / p.x);
-    uint2 range = ranges[(xy.y / 16) * p.z + xy.x / 16];
-    float t_final = finalT[pixel], t = t_final;
-    float3 dp(grad_pixels[pixel], grad_pixels[size + pixel], grad_pixels[2 * size + pixel]);
+    uint2 xy = tile * 16 + local;
+    uint pixel = xy.y * p.x + xy.x;
+    bool inside = xy.x < p.x && xy.y < p.y;
+    uint2 range = ranges[tile.y * p.z + tile.x];
+    float t_final = inside ? finalT[pixel] : 0, t = t_final;
+    uint last = inside ? lastContributor[pixel] : 0;
+    float3 dp = inside ? float3(grad_pixels[pixel], grad_pixels[size + pixel], grad_pixels[2 * size + pixel])
+                       : float3(0);
     float3 accum_rec(0), last_color(0);
     float last_alpha = 0;
     uint contributor = range.y - range.x;
-    for (uint position = range.y; position > range.x;) {
-        uint id = records[--position].z;
-        if (--contributor >= lastContributor[pixel])
-            continue;
-        Projected g = projected[id];
-        float4 co = g.conicOpacity;
-        float2 d = g.centerDepthRadius.xy - float2(xy);
-        float power = -0.5f * (co.x * d.x * d.x + co.z * d.y * d.y) - co.y * d.x * d.y;
-        if (power > 0)
-            continue;
-        float G = exp(power), alpha = min(0.99f, co.w * G);
-        if (alpha < 1.0f / 255.0f)
-            continue;
-        t = t / (1 - alpha);
-        float d_alpha = 0;
-        for (uint ch = 0; ch < 3; ch++) {
-            float c = packed[id * 13 + 9 + ch];
-            accum_rec[ch] = last_alpha * last_color[ch] + (1 - last_alpha) * accum_rec[ch];
-            last_color[ch] = c;
-            d_alpha += (c - accum_rec[ch]) * dp[ch];
-            add_float(grad_colors + id * 3 + ch, alpha * t * dp[ch]);
+    for (uint base = 0; base < range.y - range.x; base += 256) {
+        // Reverse batches and candidates, with the same contributor test as CUDA.
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if (base + lane < range.y - range.x)
+            load_candidate(batch, lane, records[range.y - 1 - base - lane].z, projected, packed);
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        for (uint j = 0; inside && j < min(256u, range.y - range.x - base); ++j) {
+            if (--contributor >= last)
+                continue;
+            uint id = batch.ids[j];
+            float4 co = batch.conic[j];
+            float2 d = batch.xy[j] - float2(xy);
+            float power = -0.5f * (co.x * d.x * d.x + co.z * d.y * d.y) - co.y * d.x * d.y;
+            if (power > 0)
+                continue;
+            float G = exp(power), alpha = min(0.99f, co.w * G);
+            if (alpha < 1.0f / 255.0f)
+                continue;
+            t = t / (1 - alpha);
+            float d_alpha = 0;
+            for (uint ch = 0; ch < 3; ch++) {
+                float c = batch.rgb[j][ch];
+                accum_rec[ch] = last_alpha * last_color[ch] + (1 - last_alpha) * accum_rec[ch];
+                last_color[ch] = c;
+                d_alpha += (c - accum_rec[ch]) * dp[ch];
+                add_float(grad_colors + id * 3 + ch, alpha * t * dp[ch]);
+            }
+            d_alpha *= t;
+            last_alpha = alpha;
+            float bg_dot = 0;
+            for (uint ch = 0; ch < 3; ch++)
+                bg_dot += camera[38 + ch] * dp[ch];
+            d_alpha += (-t_final / (1 - alpha)) * bg_dot;
+            float dG = co.w * d_alpha, gdx = G * d.x, gdy = G * d.y;
+            add_float(grad_mean2d + id * 3, dG * (-gdx * co.x - gdy * co.y) * (0.5f * p.x));
+            add_float(grad_mean2d + id * 3 + 1, dG * (-gdy * co.z - gdx * co.y) * (0.5f * p.y));
+            add_float(grad_conic + id * 4, -0.5f * gdx * d.x * dG);
+            add_float(grad_conic + id * 4 + 1, -0.5f * gdx * d.y * dG);
+            add_float(grad_conic + id * 4 + 3, -0.5f * gdy * d.y * dG);
+            add_float(grad_opacity + id, G * d_alpha);
         }
-        d_alpha *= t;
-        last_alpha = alpha;
-        float bg_dot = 0;
-        for (uint ch = 0; ch < 3; ch++)
-            bg_dot += camera[38 + ch] * dp[ch];
-        d_alpha += (-t_final / (1 - alpha)) * bg_dot;
-        float dG = co.w * d_alpha, gdx = G * d.x, gdy = G * d.y;
-        add_float(grad_mean2d + id * 3, dG * (-gdx * co.x - gdy * co.y) * (0.5f * p.x));
-        add_float(grad_mean2d + id * 3 + 1, dG * (-gdy * co.z - gdx * co.y) * (0.5f * p.y));
-        add_float(grad_conic + id * 4, -0.5f * gdx * d.x * dG);
-        add_float(grad_conic + id * 4 + 1, -0.5f * gdx * d.y * dG);
-        add_float(grad_conic + id * 4 + 3, -0.5f * gdy * d.y * dG);
-        add_float(grad_opacity + id, G * d_alpha);
     }
 }
 

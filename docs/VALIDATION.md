@@ -1,5 +1,10 @@
 # 验证记录
 
+2026-09-17 更新：tile/scan/radix/stream 迁移后，**19 项 CTest、45 项 pytest 通过**。新增大规模层级扫描、同键稳定性、多批次前向反向和异步资源生命周期覆盖。七组真实场景、旧版对照、ROCm/CPU 对照及梯度重复实验见 [TILE_MIGRATION_REPORT.md](TILE_MIGRATION_REPORT.md)。真实场景严格数值门槛仍有未通过项目，不以小测试通过代替全量等价。
+
+以下保留 2026-09-05 的原始验证记录。
+
+
 日期：2026-09-05。设备：Apple M3 Pro（arm64），Xcode 26.0.1。原生 C++17，Torch 扩展 C++20；Python 3.14.2、Torch 2.14.0、NumPy 2.5.2。实际执行 Metal/MPS 内核，没有用 CPU fallback 代替 GPU 验证。
 
 ## 原生测试
