@@ -1,10 +1,12 @@
 # CUDA → Metal 迁移契约
 
+[返回文档导航](README.md)
+
 ## 目标与架构
 
 完整迁移固定版本的可微光栅化功能，只替换 GPU 后端。用户已明确长期使用 C++ + Metal；Swift Package、Swift 源码和测试已移除。
 
-参考本地 `../../diff-gaussian-rasterization/learning-docs/用3DGS训练顶尖工程师思维.md` 的第六步/答案六，以及副本 19.2、21.4、21.5。手机 viewer 方向不缩减本工程的训练目标。
+最初参考相邻 CUDA 仓库的 `learning-docs/用3DGS训练顶尖工程师思维.md` 第六步/答案六，以及副本 19.2、21.4、21.5（该本地资料不随本仓库分发，哈希记录于 [upstream.json](upstream.json)）。手机 viewer 方向不缩减本工程的训练目标。
 
 ```text
 Python 原 API → custom autograd → C++ extension / MPS Tensor
@@ -21,7 +23,7 @@ Objective-C++ 是私有 Apple API 实现层，公共原生接口是标准 C++。
 
 ## 固定上游与接口
 
-基准提交 `59f5f77e3ddbac3ed9db93ec2cfe99ed6c5d121d`；实际使用本地 working tree 的文件哈希见 `upstream.json`。兼容 `GaussianRasterizationSettings` 原 12 个字段，`GaussianRasterizer.forward`、`markVisible`、`rasterize_gaussians` 及三个 `_C` 入口的参数顺序。
+基准提交 `59f5f77e3ddbac3ed9db93ec2cfe99ed6c5d121d`；早期本地 working tree 的实际文件哈希见 [upstream.json](upstream.json)。2026-09-17 迁移验证改用 ROCm 工程保存的固定 CUDA 快照及独立 GLM，oracle 数学源文件哈希与早期记录一致，详见 [migration-results.json](analysis/tile-2026-09-17/migration-results.json) 的 `oracle_manifest`。兼容 `GaussianRasterizationSettings` 原 12 个字段，`GaussianRasterizer.forward`、`markVisible`、`rasterize_gaussians` 及三个 `_C` 入口的参数顺序。
 
 图像为 MPS float32 `[3,H,W]`，半径为 MPS int32 `[P]`，可见性为 MPS bool `[P]`。几何、分桶、图像缓存仍以 byte Tensor 保存，但 **Metal 缓存不与 CUDA 二进制布局互通**，只能交给同后端 backward。
 
@@ -34,7 +36,7 @@ Objective-C++ 是私有 Apple API 实现层，公共原生接口是标准 C++。
 | Autograd | 每次 Forward 保存独立状态，可重复 Forward 后反传 |
 | 可见性 | 原版近裁剪语义 |
 | prefiltered | 为 true 时触发 near 剔除则报错；正常输入继续 |
-| debug | 异常时保存原版参数快照 |
+| debug | Forward/Backward 增加 GPU 完成等待，捕获异常时保存原版参数快照 |
 | settings 梯度 | 与原版一致，不提供相机/背景等 settings 梯度 |
 | depth / antialiasing | 固定版本没有这些字段，不属于本次目标 |
 
@@ -86,7 +88,7 @@ Objective-C++ 是私有 Apple API 实现层，公共原生接口是标准 C++。
 
 内部每 Gaussian 为 13 个 Float32，投影状态跨度 64 字节并有静态断言；训练缓存另行对齐，都不是公开 ABI。
 
-原生入口默认限制：10 万 Gaussian、1,048,576 个 tile 实例、4,194,304 个像素、单次 Metal 分配预算 256 MiB，可通过 RenderLimits 调整。这不是进程峰值预算，不包含 CPU 数组、驱动或历史 frame。
+原生入口默认限制：10 万 Gaussian、1,048,576 个 tile 实例、4,194,304 个像素、本次活动 Metal 资源预算 256 MiB，可通过 RenderLimits 调整。复用的 scratch 也计入预算；这不是新增分配量或进程峰值预算，不包含 CPU 数组、驱动或历史 frame。
 
 训练入口不沿用 demo 的数量/预算限制；宽高各最多 8192，实例最多 0x3fffffff，实际受 GPU 内存限制。非法或过大的投影会拒绝，原生入口另检查有限值、正定性和 opacity；畸形输入的错误行为不模仿 CUDA 未定义行为。
 
@@ -100,6 +102,7 @@ Objective-C++ 是私有 Apple API 实现层，公共原生接口是标准 C++。
 | Forward / Backward / API | 所列路径已实现并通过小型 GPU 对照 | 扩大随机和阈值边界覆盖 |
 | 官方数据 | 定点下载、PLY/相机加载、渲染和指标工具 | 精确确认 checkpoint 与图片对应 |
 | CUDA golden | 尚无同输入逐阶段/梯度输出 | 获取可追溯 golden，在本机持续对照 |
+| ROCm / CPU 实测 | 七组配对资产已对照；稀疏梯度通过，图像与部分 dense/autograd 仍超限 | 保留失败；继续分析阈值分叉和高条件数协方差 |
 | scan | 256 元素分块、递归块扫描与 uniform add，饱和计数 | 更广设备上的调优 |
 | sort | 稳定 4-bit radix，精确实例长度，scratch 复用 | 更广规模上的调优 |
 | render | 16×16 tile，256 候选共享批次，整组结束判断 | 更多场景吞吐测量 |

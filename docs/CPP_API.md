@@ -84,7 +84,7 @@ cmake --build build -j 2
 | `read_rgb()` | 显式回读为 `std::vector<float>`，逐像素 RGB 交错排列，共 width × height × 3 个值 |
 | `native_texture_handle()` | 借用的 `id<MTLTexture>`，以 `void*` 穿过公共 C++ 接口 |
 | `debug_snapshot()` | 回读投影、offsets、排序、ranges、透射率和贡献位置，用于诊断 |
-| `stats()` | 实例数、请求的 Metal 分配字节数、GPU command 时间 |
+| `stats()` | 实例数、本次活动资源请求字节数、GPU command 时间 |
 
 图像 texture 为 `RGBA32Float`，RGB 已合成背景，alpha 恒为 1；alpha 通道不是 Gaussian 透明度或剩余透射率。`read_rgb()` 不做 gamma、clamp 或 8-bit 编码。`debug_snapshot()` 的 `last_contributors` 是最后接受候选的一基位置，包含前面被跳过候选的位置，不是接受数量。
 
@@ -107,7 +107,9 @@ id<MTLTexture> texture = (__bridge id<MTLTexture>)frame.native_texture_handle();
 | `max_pixels` | 4,194,304 |
 | `max_working_bytes` | 256 MiB |
 
-三个数量上限必须为正且不超过 16,777,216；内存预算必须为正。宽高各不超过 8192，同时仍受像素数限制。预算统计本次请求的 Metal 分配，不包括 CPU 数组、驱动开销和此前保留的 frame，也不能代替进程峰值内存统计。Python 入口不沿用这些默认数量限制。
+三个数量上限必须为正且不超过 16,777,216；内存预算必须为正。宽高各不超过 8192，同时仍受像素数限制。预算与 `stats().allocated_bytes` 统计本次活动 buffer、scratch 及 texture 的请求大小；已复用的 scratch 也计入，并非每帧新分配的字节数。它不包括 CPU 数组、驱动开销和此前保留的 frame，也不能代替进程峰值内存统计。Python 入口不沿用这些默认数量限制。
+
+每个 renderer 复用自己的 scan/radix 临时池，并清理未使用槽位；预算紧张时会淘汰未使用缓存。返回 frame 持有的结果与诊断数据不进入临时池，后续 `render()` 不会覆盖它们。
 
 异常为 `dgr::Error`，可通过 `code()` 分类：
 
@@ -118,4 +120,4 @@ id<MTLTexture> texture = (__bridge id<MTLTexture>)frame.native_texture_handle();
 | `resource_limit` | 数量、预算或设备分配上限 |
 | `gpu` | shader/pipeline 编译、command 创建或执行失败 |
 
-`stats().gpu_seconds` 仅统计本次 command 执行时间，不含初始化、CPU 打包和显式回读。不要将它与端到端时间混为一谈。性能测量方法见[开发文档](DEVELOPMENT.md)。
+`stats().gpu_seconds` 是本次两段 GPU command 执行时间之和，不含初始化、CPU 打包和显式回读。不要将它与端到端时间混为一谈。`DGR_BUILD_EXAMPLES=ON` 还构建 `dgr-native-benchmark`；输入由迁移验证工具的 `--export-native` 导出，运行方法见[迁移报告](TILE_MIGRATION_REPORT.md#复现)。真实模型原生基准使用满足正定校验的可接收子集，不能将它的耗时当作完整模型结果。

@@ -1,14 +1,14 @@
 # diff-gaussian-rasterization-metal
 
-将本地 `diff-gaussian-rasterization` 的 CUDA 后端迁移到 Apple Silicon Metal。长期架构已改为 **C++ + Objective-C++ + Metal Shading Language**，使用 CMake；原 Swift 工程已移除。
+将固定版本 `diff-gaussian-rasterization` 的 CUDA 后端迁移到 Apple Silicon Metal。长期架构为 **C++ + Objective-C++ + Metal Shading Language**，使用 CMake。
 
-已实现固定上游版本的 Forward、Backward、SH 0–3 阶、scale/rotation 与预计算 covariance、预计算 RGB、`markVisible` 和 PyTorch MPS custom autograd。原 Python 类名、参数顺序及 `(color, radii)` 返回接口保留。目前通过本机 GPU 和独立 CPU 数学参考测试；**尚不能宣称与 CUDA 在所有输入上完全等价，也未完成性能优化**。
+已实现固定上游版本的 Forward、Backward、SH 0–3 阶、scale/rotation 与预计算 covariance、预计算 RGB、`markVisible` 和 PyTorch MPS custom autograd。原 Python 类名、参数顺序及 `(color, radii)` 返回接口保留。**已完成 tile 协作、分层 scan、稳定 radix sort 和 MPS 调度优化；严格跨后端数值验收仍未全部通过。**
 
-最新[差异审计](docs/DIFFERENCE_ANALYSIS.md)直接执行原 CUDA 数学体：整图对 Metal 的 RMSE 为 9.37e-6，仍有少量阈值像素超限；另修复了退化投影与 PLY 四元数边界行为。现已完成 [tile 协作流水线迁移](docs/TILE_MIGRATION_REPORT.md)，19 项原生测试、45 项 Python 测试通过。真实场景严格跨后端数值门槛尚未全部通过。
+最近一次完整验证为 **2026-09-17：19 项原生测试、45 项 Python 测试通过**，启用 Metal API/GPU Validation 后也全部通过。七组真实场景的前向图像与迁移前 Metal 逐元素一致，但与 CPU/ROCm 对照仍有阈值像素和敏感梯度超限。当前结果见 [tile 迁移报告](docs/TILE_MIGRATION_REPORT.md)；2026-09-05 的[公开图像差异审计](docs/DIFFERENCE_ANALYSIS.md)保留为历史证据。尚无同输入 NVIDIA GPU 逐阶段/梯度实测基准。
 
 兼容目标是提交 [59f5f77e](https://github.com/graphdeco-inria/diff-gaussian-rasterization/tree/59f5f77e3ddbac3ed9db93ec2cfe99ed6c5d121d) 对应的本地源码，实际文件哈希见 [docs/upstream.json](docs/upstream.json)。上游后续新增的 depth/antialiasing 接口不属于这个固定版本。
 
-详细说明从 [docs 文档导航](docs/README.md)开始：包括[架构](docs/ARCHITECTURE.md)、[Python API](docs/PYTHON_API.md)、[C++ API](docs/CPP_API.md)、[数据格式](docs/DATA_FORMATS.md)和[开发排错](docs/DEVELOPMENT.md)。下面先介绍可直接运行的使用步骤。
+详细说明从 [docs 文档导航](docs/README.md)开始：包括[架构](docs/ARCHITECTURE.md)、[Python API](docs/PYTHON_API.md)、[C++ API](docs/CPP_API.md)、[数据格式](docs/DATA_FORMATS.md)、[渲染图与验证产物位置](docs/ARTIFACTS.md)和[开发排错](docs/DEVELOPMENT.md)。文档于 2026-09-18 按实现提交 `316f4c6` 核对；下文先介绍使用步骤。
 
 ## 使用步骤：先在当前 Mac 上跑起来
 
@@ -104,10 +104,12 @@ cmake --build output/consumer-build
 python3 -m venv .venv
 .venv/bin/python -m pip install torch numpy pytest pillow setuptools
 .venv/bin/python -m pip install -e . --no-build-isolation --no-deps
-.venv/bin/python -m pytest tests/python -q
+.venv/bin/python -m pytest tests/python -q -rs
 ```
 
 需要 `cmake` 在 PATH 中。本机测试 Python 3.14.2、PyTorch 2.14.0；可选 Torch 扩展使用 C++20。依赖声明允许 Torch 2.5+，但其内部 MPS storage/stream 接口尚未逐版本验证，其他版本需重新编译并执行测试。
+
+渲染库本身不依赖相邻 CUDA/ROCm 仓库。要复现全部 45 项 Python 测试，还需准备固定 CUDA 源码及 GLM，步骤见[开发文档：原源码对照依赖](docs/DEVELOPMENT.md#原源码对照依赖)。新克隆仓库缺少它们时，19 项源码对照会跳过；`-rs` 显示跳过原因，不能把有跳过的结果记作全部通过。
 
 下面是接入方式示意，`settings` 和模型 Tensor 的准备过程可参考上面的完整模板。需要优化的参数必须启用 `requires_grad`；`target` 应为与输出同尺寸的 `[3, H, W]` 图像 Tensor，并使用 `float32` 和 `mps`。
 
@@ -136,7 +138,7 @@ loss.backward()
 .venv/bin/python tools/check_public_pixels.py
 ```
 
-本机已运行官方 train 7000-step 模型的 559,263 个 Gaussian：980×545 Forward/Backward 成功，64 个固定像素与独立 CPU double 的最大误差为 2.95e-6。记录见 [docs/public-sample.json](docs/public-sample.json)。
+2026-09-05 已运行官方 train 7000-step 模型的 559,263 个 Gaussian：980×545 Forward/Backward 成功，64 个固定像素与独立 CPU double 的最大误差为 2.95e-6。该抽样记录保存在 [docs/public-sample.json](docs/public-sample.json)；2026-09-17 更完整的七组场景对照与未通过项目见[验证记录](docs/VALIDATION.md)。
 
 文件位于 `output/public/train/`。公开评估图片与预训练模型不能假定来自完全相同的 checkpoint/代码版本；缩放也引入滤波差异。工具报告图像误差，不把它当作逐内核或梯度 CUDA golden。下载的模型和图片不纳入源码仓库。
 
@@ -157,7 +159,7 @@ cmake --build build -j 2
 ctest --test-dir build --output-on-failure
 ```
 
-Python 扩展与原生库使用各自的构建产物，仅构建 `build/` 中的默认原生目标不会更新已安装的 `_C` 扩展。单纯修改 Python 包装层时，editable 安装会直接使用源码，但仍应运行相关 Python 测试。
+Python 扩展与原生库是不同构建目标。新建 CMake 目录默认 `DGR_BUILD_TORCH=OFF`，只构建原生目标不会更新 `_C`；若目录已配置为 `ON`，`cmake --build` 会同时构建扩展，默认写入源码 Python 包。CMake 会保留已有选项，普通重配置不会重置它们。pip 安装另用自己的构建目录，应核对实际导入路径；具体命令见[开发文档](docs/DEVELOPMENT.md)。单纯修改 Python 包装层时，editable 安装会直接使用源码，但仍应运行相关 Python 测试。
 
 ## 代码导航
 
@@ -165,11 +167,13 @@ Python 扩展与原生库使用各自的构建产物，仅构建 `build/` 中的
 | --- | --- |
 | `include/dgr/`、`src/core/` | C++ 数据契约、校验、独立 double reference |
 | `src/metal/metal_rasterizer.mm` | 原生 GPU 资源、调度、frame 生命周期 |
+| `src/metal/primitives.h` | 原生与 Torch 共用的分层 scan、radix 调度和 scratch 池 |
 | `shaders/rasterizer.metal` | 预处理、scan、分桶、排序、ranges、Forward |
 | `shaders/training.metal` | SH、covariance、CHW Forward、解析 Backward、可见性 |
 | `bindings/torch/` | C++/Objective-C++ MPS Tensor 互操作与扩展入口 |
 | `python/diff_gaussian_rasterization/` | 保持原 API 的 autograd wrapper |
 | `tests/`、`tests/python/` | 原生 GPU、CPU 对照、梯度与优化测试 |
+| `tools/benchmark_scene.py`、`tools/validate_tile_migration.py` | 同输入性能测量与七组真实场景复验 |
 | [docs/MIGRATION.md](docs/MIGRATION.md) | 兼容语义、资源与架构约定、未完成工作 |
 | [docs/VALIDATION.md](docs/VALIDATION.md) | 已执行的测试及证据边界 |
 

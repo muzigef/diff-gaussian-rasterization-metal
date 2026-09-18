@@ -2,9 +2,11 @@
 
 日期：2026-09-17。设备 Apple M3 Pro，macOS 15.6.1，Python 3.14.2 / Torch 2.14.0。旧版基线 `9ac670e`，旧扩展已保存。固定 CUDA 参考为 `59f5f77e3ddbac3ed9db93ec2cfe99ed6c5d121d`；ROCm 使用此前保存的同输入实测结果，本次未重新运行远端 GPU，也没有 NVIDIA 同输入实测。
 
+实现归档于提交 `316f4c6`。2026-09-18 文档校对确认报告所列 6 个实现文件哈希仍与当前源码一致；此校对没有重新测量本报告的性能和全场景数值。
+
 **协作 tile 前向/反向、分层扫描、稳定 radix sort、浮点原子加法、临时资源复用和当前 MPS stream 调度均已实现。19 项原生测试与 45 项 Python 测试通过；七组真实场景前向与旧版逐元素一致。严格跨后端数值验收仍未全部通过，不能称为 CUDA/ROCm 全量数值等价。**
 
-完整数值、源码与扩展哈希、旧版/新版重复实验见 [migration-results.json](analysis/tile-2026-09-17/migration-results.json)。原始图像、状态、梯度及日志保存在本机 `output/migration-20260917/`，大文件不提交到 Git。
+完整数值、源码与扩展哈希、旧版/新版重复实验见 [migration-results.json](analysis/tile-2026-09-17/migration-results.json)。原始图像、状态、梯度及日志保存在本机 `output/migration-20260917/`，大文件不提交到 Git。新 Metal PNG、官方公开 CUDA 图与 ROCm/CPU 参照的路径见 [ARTIFACTS.md](ARTIFACTS.md)。
 
 ## 已完成的代码迁移
 
@@ -101,7 +103,7 @@ dense 梯度的误差按案例、参数及高斯 ID 完整保存在 JSON 中。�
 
 ## 复现
 
-从仓库根目录运行：
+从仓库根目录运行；先完成 editable 安装，并按[开发文档](DEVELOPMENT.md#原源码对照依赖)准备 pytest 所需的相邻 CUDA 源码与 GLM。下面第一组测试不需要大模型资产：
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DDGR_BUILD_TORCH=ON \
@@ -114,7 +116,7 @@ MTL_DEBUG_LAYER=1 MTL_SHADER_VALIDATION=1 ctest --test-dir build --output-on-fai
 MTL_DEBUG_LAYER=1 MTL_SHADER_VALIDATION=1 .venv/bin/python -m pytest tests/python -q
 ```
 
-真实场景资产为之前 ROCm 全量验证保存的 `inputs.pt`、`inputs.json`、`precomputed_00001_980.pt` 和七组 `metal/rocm/cpu` 子目录；每个子目录包含图像、状态、dense/sparse 梯度及 provenance report。它们是显式测试资产，运行库不依赖相邻仓库。脚本先核对 snapshot / 输入路径 / 预计算数据哈希，再比较数值。
+真实场景资产为之前 ROCm 全量验证保存的 `inputs.pt`、`inputs.json`、`precomputed_00001_980.pt` 和七组 `metal/rocm/cpu` 子目录；每个子目录包含图像、状态、dense/sparse 梯度及 provenance report。它们是本机已保存的显式测试资产，不随 Git 分发，公开模型下载脚本也不会生成这些跨后端参照。运行库不依赖相邻仓库。以下命令需要这些资产及给定的固定源码/GLM 路径；脚本先核对 snapshot / 输入路径 / 预计算数据哈希，再比较数值。
 
 ```bash
 .venv/bin/python tools/benchmark_scene.py \

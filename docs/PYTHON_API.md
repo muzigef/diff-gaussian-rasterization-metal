@@ -30,7 +30,7 @@ from diff_gaussian_rasterization import (
 | `sh_degree` | int 0–3 | 实际求值的 SH 阶数；RGB 路径也要求合法值 |
 | `campos` | float32 `[3]` | 相机在世界坐标中的位置，用于 SH 视角方向 |
 | `prefiltered` | bool | 为 true 时，出现 near 剔除的点会报错；不是抗锯齿开关 |
-| `debug` | bool | Forward/Backward 出错时保存 CPU 参数快照 |
+| `debug` | bool | Forward/Backward 等待 GPU 完成，并在捕获异常时保存 CPU 参数快照 |
 
 矩阵构造、正 Z 约定和 PLY 相机转换见[数据格式](DATA_FORMATS.md)。已有上层相机若已经转置为原版格式，不要再转置一次。
 
@@ -134,7 +134,7 @@ print("near-visible:", rasterizer.markVisible(data["means3D"]).cpu().tolist())
 
 空模型 `P=0` 返回黑图；非空但全部被剔除时返回背景色。`prefiltered=True` 不会跳过校验：若点触发 near 剔除，会抛异常。
 
-`debug=True` 的异常快照写入当前工作目录的 `snapshot_fw.dump` 或 `snapshot_bw.dump`，可能覆盖同名文件并包含完整输入。正常渲染不会因此生成快照，也不会启用 GPU capture。
+`debug=True` 会额外等待 Forward 最后一段和 Backward 完成，影响计时；捕获异常时，快照写入当前工作目录的 `snapshot_fw.dump` 或 `snapshot_bw.dump`，可能覆盖同名文件并包含完整输入。正常渲染不会因此生成快照，也不会启用 GPU capture。`markVisible` 的底层入口没有 debug 参数，仍采用异步提交。
 
 底层 `_C` 接口供 wrapper 使用。Forward 返回实例数、color、radii、geometry、binning、image；Backward 返回 means2D、RGB、opacity、means3D、covariance、SH、scale、rotation 的梯度。其确切签名见 [api.h](../bindings/torch/api.h)，状态 buffer 不应手工构造或跨后端复用。
 

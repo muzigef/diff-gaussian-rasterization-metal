@@ -1,6 +1,6 @@
 # Metal 与 CUDA / ROCm 的 tile 设计差异及迁移可行性
 
-> 这是迁移前的分析快照，以 `9ac670e` 为基线。以下“当前”均指该基线；阶段 1–5 的实现已完成，迁移后状态及验收结果请看 [TILE_MIGRATION_REPORT.md](TILE_MIGRATION_REPORT.md)。
+> 这是迁移前的分析快照，以 `9ac670e` 为基线。以下“当前”均指该基线，所引用的实现与旧架构文档链接固定到该提交，行号也是旧版行号。阶段 1–5 的实现已完成；阶段 0 中的逐 kernel 计时和实际峰值内存仍未完成。迁移后状态及验收结果请看 [TILE_MIGRATION_REPORT.md](TILE_MIGRATION_REPORT.md)。
 
 
 日期：2026-09-17。Metal 阅读基线为 `9ac670e`，ROCm 为 `6cbb098`；CUDA 对照使用 ROCm 工程保存的固定上游 `59f5f77e3ddbac3ed9db93ec2cfe99ed6c5d121d` 快照，避免把相邻 CUDA 工作目录中的未提交修改当作基准。
@@ -25,14 +25,14 @@ Apple 的 tile shaders 与 imageblock 涉及 render pass 内的分块数据和�
 
 ## 2. Metal 已有 tile 的源码证据
 
-在 [rasterizer.metal](../shaders/rasterizer.metal) 中：
+在 [rasterizer.metal](https://github.com/muzigef/diff-gaussian-rasterization-metal/blob/9ac670ed80649710b0951c5a6fdaf36cd38760e8/shaders/rasterizer.metal) 中：
 
 - `preprocess` 第 70–80 行：按 16 像素计算 tile 网格和每个高斯覆盖的 tile 矩形，保存计数。
 - `duplicate` 第 97–108 行：为每个高斯与 tile 的配对写入记录，包含 tile ID、深度和高斯 ID。
 - `identify_ranges` 第 129–138 行：保存各 tile 的候选起止位置。
 - `render` 第 149–150 行：根据像素所在 tile 读取对应范围。
 
-训练前向与反向同样读取这些 tile 范围，见 [training.metal](../shaders/training.metal) 的 `training_render` 第 501 行和 `training_backward_render` 第 549 行。
+训练前向与反向同样读取这些 tile 范围，见 [training.metal](https://github.com/muzigef/diff-gaussian-rasterization-metal/blob/9ac670ed80649710b0951c5a6fdaf36cd38760e8/shaders/training.metal) 的 `training_render` 第 501 行和 `training_backward_render` 第 549 行。
 
 当前 Metal 不会让每个像素遍历整个模型；它遍历的是该像素所在 tile 的候选列表。
 
@@ -56,7 +56,7 @@ ROCm 对照见固定提交中的 [forward.hip](https://github.com/muzigef/diff-g
 
 ### 3.1 当前 256 个 Metal 线程不等于一个 tile
 
-原生 [metal_rasterizer.mm](../src/metal/metal_rasterizer.mm) 第 127 行和训练 [bridge.mm](../bindings/torch/bridge.mm) 第 90 行，都通过 `dispatchThreads` 分发一维像素索引，线程组形状是最多 256×1×1。
+原生 [metal_rasterizer.mm](https://github.com/muzigef/diff-gaussian-rasterization-metal/blob/9ac670ed80649710b0951c5a6fdaf36cd38760e8/src/metal/metal_rasterizer.mm) 第 127 行和训练 [bridge.mm](https://github.com/muzigef/diff-gaussian-rasterization-metal/blob/9ac670ed80649710b0951c5a6fdaf36cd38760e8/bindings/torch/bridge.mm) 第 90 行，都通过 `dispatchThreads` 分发一维像素索引，线程组形状是最多 256×1×1。
 
 以宽度 980 的图像为例，第一组 256 个线程处理第一行的 x=0–255，共跨越 16 个横向 tile 的第一行。它们并没有负责一个 16×16 的二维区域。
 
@@ -74,7 +74,7 @@ flowchart LR
 
 ## 4. 为什么当前实现没有完成这些优化
 
-[MIGRATION.md](MIGRATION.md) 第 101–105 行已经明确列出后续工作：分块 scan、radix sort、threadgroup memory 批量加载、减少反向竞争、资源池与异步调度。[ARCHITECTURE.md](ARCHITECTURE.md) 也明确说明当前逐像素读取和多轮排序不是最终性能方案。
+[MIGRATION.md](https://github.com/muzigef/diff-gaussian-rasterization-metal/blob/9ac670ed80649710b0951c5a6fdaf36cd38760e8/docs/MIGRATION.md) 第 101–105 行已经明确列出后续工作：分块 scan、radix sort、threadgroup memory 批量加载、减少反向竞争、资源池与异步调度。[ARCHITECTURE.md](https://github.com/muzigef/diff-gaussian-rasterization-metal/blob/9ac670ed80649710b0951c5a6fdaf36cd38760e8/docs/ARCHITECTURE.md) 也明确说明当前逐像素读取和多轮排序不是最终性能方案。
 
 这些是源码与已有文档能直接确认的事实。从实现取舍推断，初版优先建立可检查的功能基线：独立像素循环便于核对合成与反向公式；bitonic 排序容易实现明确的同键顺序；统一的一维编码器可以复用到多数 kernel。完整的早期决策过程没有单独记录，因此不能把所有设计动机当作已证实事实。
 

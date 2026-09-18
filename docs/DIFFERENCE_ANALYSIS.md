@@ -1,5 +1,7 @@
 # 公开图像差异与逻辑兼容性审计
 
+> 历史记录：本文保留 2026-09-05 的实验、测试数量和当时的后续计划，“当前”均指该次实验。2026-09-17 已完成 tile/scan/radix 迁移与更完整的 ROCm/CPU 对照；最新状态见 [VALIDATION.md](VALIDATION.md) 和 [TILE_MIGRATION_REPORT.md](TILE_MIGRATION_REPORT.md)，图像路径见 [ARTIFACTS.md](ARTIFACTS.md)。
+
 日期：2026-09-05；设备：Apple M3 Pro；固定光栅化源码提交：59f5f77e3ddbac3ed9db93ec2cfe99ed6c5d121d。
 
 ## 判断
@@ -143,7 +145,9 @@ $$
 
 最终本机验证：**17 项 CTest + 40 项 pytest 全部通过**。全图误差门槛超限仍单独记录，未纳入“完全等价通过”的声明。
 
-## 复现与证据
+## 当时的复现命令与证据
+
+以下工具仍可用于当前实现；今天运行得到的是当前代码结果，不会重现旧性能数字。当前构建、源码/GLM 前置条件见 [DEVELOPMENT.md](DEVELOPMENT.md#原源码对照依赖)。
 
 ```sh
 cmake --build build -j 2

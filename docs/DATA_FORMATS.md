@@ -119,7 +119,11 @@ $$
 | `gt.png` | 官方对应视角的真实照片 |
 | `provenance.json` / `image_provenance.json` | 下载 URL、ZIP 成员路径、字节数和 SHA-256 |
 | 审计 `images.npz` | 保留 Float32 的 Metal、原源码 Host、公开图和 GT 数组 |
+| 迁移验证 `image.npy` | 单个场景的新 Metal Float32 `[3,H,W]` 图像 |
+| 迁移验证 `state.npz` / `gradients_dense.npz` / `gradients_sparse.npz` | 语义解码后的中间状态与两种损失权重下的梯度，不是后端 byte buffer ABI |
 
 8-bit 导出会丢失小数精度，逐阶段审计应使用浮点数组。官方模型与公开图不能仅凭场景名和迭代标签就认定为完全配对；原因和实际误差见[差异分析](DIFFERENCE_ANALYSIS.md)。
 
 模型、图像、下载分段缓存和审计大文件保存在 `output/` 下并被 Git 忽略。可复现证据需要保留来源记录、相机索引、设置、模型哈希和代码版本；不要以内部 geometry/binning/image byte buffer 代替模型数据。
+
+迁移后的 PNG、官方公开 CUDA 图、ROCm/CPU 参照和 JSON 报告的具体路径见 [ARTIFACTS.md](ARTIFACTS.md)。迁移验证脚本直接保存浮点数组；`render.png` 是从该数组额外导出的显示副本，不应作为严格数值对照输入。

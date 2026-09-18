@@ -29,7 +29,8 @@ PY
 | 改动 | 必要操作 |
 | --- | --- |
 | `src/core/`、公共头文件 | 原生构建和相关 CTest；公共 API 改动另验证下游消费方 |
-| `src/metal/` | 原生构建和 Metal CTest |
+| `src/metal/metal_rasterizer.mm`、`layout.h` | 原生构建和 Metal CTest |
+| `src/metal/primitives.h` | 原生与 Torch 共用；两条路径都要重新构建并测试 |
 | `shaders/` | 原生构建/CTest，以及 Torch 扩展重编译/Python 测试 |
 | `bindings/torch/` | 重编译 `_C`，运行 Python 测试 |
 | Python wrapper | editable 安装直接生效，运行相关 Python 测试 |
@@ -51,7 +52,17 @@ Torch 路径：
 .venv/bin/python -m pytest tests/python -q
 ```
 
-两条路径的编译产物独立。默认原生配置 `DGR_BUILD_TORCH=OFF`，因此只执行 `cmake --build build` 不会更新 pip 安装的 `_C`。Shader 经 CMake 嵌入，修改 `.metal` 文件也必须重编译；已运行的 Python 进程需要退出后重新启动，才能加载新的扩展和 context。
+原生库与 `_C` 是不同目标。新建 CMake 构建目录默认 `DGR_BUILD_TORCH=OFF`，该配置不会生成 `_C`；但 CMake 保留旧缓存，已有 `ON` 配置不会因省略选项而关闭。当前 Mac 的 `build/` 已配置为 `ON`。要在同一目录构建两条路径，显式执行：
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DDGR_BUILD_TORCH=ON \
+  -DPython3_EXECUTABLE="$PWD/.venv/bin/python" \
+  -DDGR_PYTHON_OUTPUT_DIR="$PWD/python/diff_gaussian_rasterization"
+cmake --build build -j 2
+.venv/bin/python -c 'from diff_gaussian_rasterization import _C; print(_C.__file__)'
+```
+
+此命令将 `_C` 写入源码 Python 包；先完成 editable 安装使其可导入。pip 构建使用自己的临时目录与输出设置，普通 wheel 安装也可能从 site-packages 加载另一个扩展，应以上面打印的实际路径为准。只需原生构建时显式设 `-DDGR_BUILD_TORCH=OFF`。Shader 经 CMake 嵌入，修改 `.metal` 文件也必须重编译；已运行的 Python 进程需要退出后重新启动，才能加载新的扩展和 context。
 
 独立消费方检查：
 
@@ -67,11 +78,11 @@ cmake --build output/consumer-build -j 2
 | 选项 | 默认值 / 用途 |
 | --- | --- |
 | `DGR_BUILD_METAL` | Apple 上默认 ON；OFF 时只构建 CPU core/reference |
-| `DGR_BUILD_EXAMPLES` | ON，构建原生 JSON/PPM demo |
+| `DGR_BUILD_EXAMPLES` | ON，构建 `rasterizer-demo` 和 `dgr-native-benchmark` |
 | `DGR_BUILD_TORCH` | OFF，启用时要求 Metal；pip 构建自动启用 |
 | `BUILD_TESTING` | CTest 默认 ON，pip 构建设为 OFF |
 | `Python3_EXECUTABLE` | 显式选定 Torch 扩展使用的 Python |
-| `DGR_PYTHON_OUTPUT_DIR` | `_C` 产物目录，pip 构建自动设置 |
+| `DGR_PYTHON_OUTPUT_DIR` | CMake 默认是源码 `python/diff_gaussian_rasterization`；pip 构建自动设置 |
 | `CMAKE_OSX_DEPLOYMENT_TARGET` | 未指定时设为 14.0；最低系统版本尚未实测 |
 
 仅验证 CPU reference 可使用独立目录，避免覆盖 Metal 配置：
@@ -92,9 +103,35 @@ ctest --test-dir build-cpu --output-on-failure
 | `test_public_sample.py` | PLY 激活边界回归 | 输入工具，不证明整个渲染器 |
 | 公开场景审计 | 大模型、多阶段浮点和图像差异 | 参考图版本及数值阈值仍需区别分析 |
 
-原源码 oracle 需要相邻参考仓库和 `third_party/glm/glm/glm.hpp`。缺少 GLM 时对应测试会跳过；MPS 不可用时 GPU Python 测试也会跳过。查看最终 skip 记录，不能把“无失败”直接写成“GPU 全部通过”。
+原源码 oracle 的依赖见下一节。MPS 不可用时 GPU Python 测试会跳过；原生 Metal 测试使用返回码 77 标记设备不可用。查看最终 skip 记录，不能把“无失败”直接写成“GPU 全部通过”。
 
 已记录的通过数量和容差以 [VALIDATION.md](VALIDATION.md) 为准。修复逻辑错误应加入能够触发原问题的回归；不要为了通过测试而放宽阈值，或把旧版特殊梯度改成另一套数学行为。
+
+## 原源码对照依赖
+
+安装和渲染不需要 CUDA 工具链或 NVIDIA GPU。源码 oracle 用本机 `clang++` 编译抽取的 CUDA 数学体，并在 CPU 上执行；需要固定上游源码及 GLM 头文件。
+
+当前 `tests/python/test_upstream_source.py` 固定查找相邻目录 `../diff-gaussian-rasterization`，以及其中的 `third_party/glm/glm/glm.hpp`。**19 项测试依赖该 fixture**。首次在新位置准备环境、且该相邻目录尚不存在时，从 Metal 工程根目录执行：
+
+```sh
+git clone --no-checkout https://github.com/graphdeco-inria/diff-gaussian-rasterization.git ../diff-gaussian-rasterization
+git -C ../diff-gaussian-rasterization checkout --detach 59f5f77e3ddbac3ed9db93ec2cfe99ed6c5d121d
+git -C ../diff-gaussian-rasterization submodule update --init --recursive
+.venv/bin/python -m pytest tests/python -q -rs
+```
+
+当前 Mac 已有参考仓库和用户修改，不执行上述 checkout；用 [upstream.json](upstream.json) 中的实际数学源码哈希核对。测试不会自动核验 Git 提交，fixture 的自动 skip 只检查 GLM 文件是否存在；其他源码缺失或不兼容会构建失败。只有显示 `45 passed` 且没有 skipped，才是此版本全部 Python 测试执行通过。
+
+独立 oracle 构建和真实场景迁移工具支持把源码与 GLM 放在不同目录，例如当前保存的 ROCm 固定快照：
+
+```sh
+.venv/bin/python tests/upstream_oracle/build.py \
+  --upstream ../diff-gaussian-rasterization-rocm/upstream \
+  --glm ../diff-gaussian-rasterization-rocm/third_party/glm \
+  --output output/oracle-build
+```
+
+这里 `--glm` 指向包含 `glm/glm.hpp` 的目录。此 CLI 参数不会改变 pytest fixture 的固定路径；`audit_public_difference.py` 也仍默认使用相邻 CUDA 仓库。
 
 ## 真实场景与深入审计
 
@@ -141,3 +178,5 @@ ctest --test-dir build-cpu --output-on-failure
 新增 `metal.hierarchical_sort` 覆盖 65,537 个输入、三级扫描和跨块同键稳定性；`metal.tile_batches` 与 Python 原源码对照覆盖 769 个候选、部分 tile 和提前终止。Python 另验证异步 producer/consumer、临时切片复用、12 个保留图、debug 同步与并发调用。
 
 `tools/benchmark_scene.py` 对相同 CPU Tensor snapshot 预热并重复测量，计时边界执行 `torch.mps.synchronize()`，不包含图像/梯度回读。`tools/validate_tile_migration.py` 重放保存的七组 Metal/ROCm/CPU 配对结果；`tools/audit_gradient_repeats.py` 在同一个 Forward 缓冲上反复 Backward，量化原子累加变化。资产要求、完整命令和门槛见[迁移报告](TILE_MIGRATION_REPORT.md)。
+
+七组配对资产与旧扩展不随 Git 分发，也不会由公开模型下载工具自动生成。没有这些资产时仍可运行小场景测试与公开模型渲染，但不能直接重放该次跨后端验证。已有资产和新图位置见[产物说明](ARTIFACTS.md)。运行完整验证后必须检查 `summary.json` 中的 `strict_cpu_passed` 及逐后端误差，不能只看退出码。

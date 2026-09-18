@@ -75,6 +75,8 @@ Torch 绑定直接取得 MPS Tensor 底层的 `MTLBuffer` 和 storage offset。�
 
 原生 renderer 实例也要求串行使用。`MetalFrame` 可复制并共享资源，renderer 销毁后 frame 仍可读取；借用的 texture handle 依赖 frame 存活。保留很多 frame 或 autograd graph 会同时保留 GPU 内存。
 
+原生 `render()` 等待两段 GPU command 完成后才返回，与 Torch 默认异步返回的行为不同。`FrameStats::allocated_bytes` 包含本次复用的 scratch 请求大小，不表示新增分配量或峰值内存；详见 [C++ API](CPP_API.md)。
+
 ## 当前工程边界
 
 现在采用 CUDA/ROCm 同样的“投影 → 前缀和 → tile 实例 → 稳定深度排序 → tile 协作前向/反向”策略。Metal 的 SIMD 宽度、API、内存布局和数学库仍不同；没有直接链接 CUB/hipCUB，也没有使用 Apple 图形 render pass 的 tile shader。历史取舍见 [tile 迁移前分析](TILE_MIGRATION_ANALYSIS.md)，当前代码、实测收益与数值限制见[迁移报告](TILE_MIGRATION_REPORT.md)。
